@@ -13,6 +13,7 @@ import {
   type PersonaCard,
 } from './prompt.ts'
 import type { AttachmentRow, CharacterRow, ConversationRow, MemoryRow, MessageRow, QuotaRow } from './types.ts'
+import { assertSpendAllowed, billingMode, freeze, marginBps, markBillingUnknown, ownWallet, quoteCharge, releaseHold, settleQuoted, walletView } from './wallet.ts'
 
 export function ownConversation(ctx: Ctx, id: string): ConversationRow {
   const row = one<ConversationRow>(
@@ -117,6 +118,12 @@ export async function streamAssistant(
       'Server model provider key is not configured. Chat is unavailable until an administrator sets DEEPSEEK_API_KEY. This server does not invent model replies.'
     )
   }
+  assertSpendAllowed(ctx.db, ctx.user!.id)
+  const mode = billingMode(ctx.config)
+  const assistantId = newId()
+  if ((mode === 'cny' || mode === 'fx') && ctx.config.billingReserveFen > 0 && ctx.config.prices[input.model]) {
+    freeze(ctx.db, ctx.user!.id, assistantId, ctx.config.billingReserveFen)
+  }
   let character: CharacterRow | undefined
   if (conversation.space === 'companion') {
     character = one<CharacterRow>(
@@ -125,9 +132,11 @@ export async function streamAssistant(
       conversation.character_id,
       ctx.user!.id
     )
-    if (!character) throw new HttpError(404, 'not_found', 'Not found')
+    if (!character) {
+      releaseHold(ctx.db, ctx.user!.id, assistantId, 'character missing before provider call')
+      throw new HttpError(404, 'not_found', 'Not found')
+    }
   }
-  const assistantId = newId()
   const at = nowIso()
   run(
     ctx.db,
@@ -204,6 +213,13 @@ export async function streamAssistant(
       },
     })
     const cost = costMicroUsd(input.model, result.promptTokens, result.completionTokens, ctx.config.prices, result.source)
+    const quote = quoteCharge(ctx.config, marginBps(ctx.db, ctx.config), input.model, result.promptTokens, result.completionTokens, result.source)
+    const settled = settleQuoted(ctx.db, ctx.user!.id, assistantId, quote, {
+      model: input.model,
+      category: 'text',
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+    })
     const doneAt = nowIso()
     run(
       ctx.db,
@@ -241,8 +257,19 @@ export async function streamAssistant(
           : cost.status === 'fixture'
             ? 'Fixture protocol usage. This is not a DeepSeek reply and not a provider bill.'
             : 'Usage was reported without a configured unit price. Cost is unknown.',
+      wallet: walletView(ownWallet(ctx.db, ctx.user!.id)),
+      chargeFen: settled.quote.chargeFen,
+      providerCostStatus: settled.quote.providerCostStatus,
+      realUpstreamCharge: false,
+      billingNote: settled.quote.note,
     })
   } catch (error) {
+    const started = content.length > 0 || reasoning.length > 0
+    if (!started) {
+      releaseHold(ctx.db, ctx.user!.id, assistantId, 'provider failed before output; hold released')
+    } else {
+      markBillingUnknown(ctx.db, ctx.user!.id, assistantId, input.model, 'Output started and then failed. The hold is kept. This is not a zero-cost refund.')
+    }
     const aborted = abort.signal.aborted
     const code = aborted ? 'aborted' : error instanceof GatewayError ? error.code : 'provider_error'
     const message = aborted

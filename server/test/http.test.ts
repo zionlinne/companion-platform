@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { initAdmin } from '../src/auth.ts'
+import { initAdmin } from '../src/identity.ts'
 import { api, sse, start, type Running } from './harness.ts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -44,6 +44,7 @@ test('cli creates one administrator and does not print the password', () => {
     ADMIN_EMAIL: 'cli-admin@example.com',
     ADMIN_PASSWORD: 'CliAdminPassw0rd!123',
     MODEL_GATEWAY_MODE: 'live',
+    BETTER_AUTH_SECRET: '0123456789abcdef0123456789abcdef',
   }
   const args = ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/src/cli.ts', 'init-admin']
   const first = spawnSync(process.execPath, args, { cwd: root, env, encoding: 'utf8' })

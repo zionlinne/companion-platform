@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
-import { initAdmin } from '../server/src/auth.ts'
+import { initAdmin } from '../server/src/identity.ts'
 import { loadConfig } from '../server/src/config.ts'
 import { migrate, openDatabase } from '../server/src/db.ts'
 import { startFixture } from '../server/src/fixture-provider.ts'
@@ -29,6 +29,7 @@ const config = loadConfig(
     deepseekApiKey: 'sk-test-should-not-leak-9f3a',
     allowTestClock: true,
     initiativePollMs: 0,
+    betterAuthSecret: '0123456789abcdef0123456789abcdef',
   }
 )
 const db = openDatabase(databasePath)
@@ -50,6 +51,7 @@ const child = spawn(process.execPath, ['--experimental-strip-types', '--disable-
     ALLOW_GATEWAY_FIXTURE: '1',
     FIXTURE_BASE_URL: fixture.url,
     DEEPSEEK_API_KEY: 'sk-test-should-not-leak-9f3a',
+    BETTER_AUTH_SECRET: '0123456789abcdef0123456789abcdef',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -226,6 +228,14 @@ try {
   await page.goto(`${baseUrl}/notifications`)
   await page.getByText('主动提醒：HAND_TIMELINE').waitFor()
   await shot('notification')
+  await page.goto(`${baseUrl}/account`)
+  await page.getByTestId('wallet-available').waitFor()
+  await page.getByText('真实充值未开放').waitFor()
+  await page.getByTestId('image-unimplemented').waitFor()
+  await shot('account')
+  await page.getByTestId('theme-toggle').click()
+  await page.getByRole('button', { name: '浅色' }).waitFor()
+  await shot('account-dark')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(`${baseUrl}/`)
   await page.getByTestId('workspace-entry').waitFor()

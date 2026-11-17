@@ -60,6 +60,8 @@ export function startFixture(): Promise<{ url: string; state: FixtureState; clos
         return
       }
       const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : null
+      const promptHeader = Number(req.headers['x-fixture-prompt-tokens'])
+      const completionHeader = Number(req.headers['x-fixture-completion-tokens'])
       const body = await readJson(req)
       state.requests.push({ authorization, body })
       if (!authorization?.startsWith('Bearer ')) {
@@ -77,7 +79,13 @@ export function startFixture(): Promise<{ url: string; state: FixtureState; clos
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`)
       }
       res.write(
-        `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 11, completion_tokens: reply.content.length } })}\n\n`
+        `data: ${JSON.stringify({
+          choices: [],
+          usage: {
+            prompt_tokens: Number.isSafeInteger(promptHeader) && promptHeader >= 0 ? promptHeader : 11,
+            completion_tokens: Number.isSafeInteger(completionHeader) && completionHeader >= 0 ? completionHeader : reply.content.length,
+          },
+        })}\n\n`
       )
       res.write('data: [DONE]\n\n')
       res.end()

@@ -24,6 +24,17 @@ export async function start(options?: {
   mode?: 'live' | 'fixture'
   apiKey?: string | null
   prices?: Record<string, ModelPrice>
+  priceCurrency?: 'CNY' | 'USD' | 'unset'
+  marginBps?: number
+  billingReserveFen?: number
+  allowMailFixture?: boolean
+  mailTransport?: 'unconfigured' | 'fixture'
+  allowTestPayments?: boolean
+  fixturePromptTokens?: number | null
+  fixtureCompletionTokens?: number | null
+  fxCnyFenPerUsd?: number | null
+  fxSource?: string | null
+  fxQuotedAt?: string | null
   baseUrl?: string
   databasePath?: string
   dataDir?: string
@@ -51,6 +62,18 @@ export async function start(options?: {
       allowTestClock: true,
       loginLimit: 100,
       initiativePollMs: 0,
+      betterAuthSecret: '0123456789abcdef0123456789abcdef',
+      priceCurrency: options?.priceCurrency,
+      marginBps: options?.marginBps,
+      billingReserveFen: options?.billingReserveFen,
+      allowMailFixture: options?.allowMailFixture,
+      mailTransport: options?.mailTransport,
+      allowTestPayments: options?.allowTestPayments,
+      fixturePromptTokens: options?.fixturePromptTokens,
+      fixtureCompletionTokens: options?.fixtureCompletionTokens,
+      fxCnyFenPerUsd: options?.fxCnyFenPerUsd,
+      fxSource: options?.fxSource,
+      fxQuotedAt: options?.fxQuotedAt,
     }
   )
   const db = openDatabase(config.databasePath)

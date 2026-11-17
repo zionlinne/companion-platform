@@ -102,6 +102,16 @@ export function clearSessionCookie(res: ServerResponse, config: AppConfig): void
   res.setHeader('Set-Cookie', parts.join('; '))
 }
 
+export function applySetCookies(res: ServerResponse, headers: Headers, config: AppConfig, forceClear = false): void {
+  const cookies = typeof headers.getSetCookie === 'function' ? [...headers.getSetCookie()] : []
+  if (forceClear && !cookies.some((cookie) => cookie.includes('Max-Age=0'))) {
+    const expired = ['cp_session=', 'HttpOnly', 'Path=/', 'SameSite=Lax', 'Max-Age=0']
+    if (config.cookieSecure) expired.push('Secure')
+    cookies.push(expired.join('; '))
+  }
+  if (cookies.length) res.setHeader('Set-Cookie', cookies.length === 1 ? cookies[0]! : cookies)
+}
+
 export function requireUser(ctx: Ctx): UserRow {
   if (!ctx.user) throw new HttpError(401, 'unauthenticated', 'Login required')
   return ctx.user

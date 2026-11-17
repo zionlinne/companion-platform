@@ -12,11 +12,82 @@ type Settings = {
   triggers: Record<string, { enabled: boolean; implemented: boolean }>
 }
 
-export function AccountPages({ mode }: { mode: 'settings' | 'privacy' | 'notifications' | 'admin' }) {
+export function AccountPages({ mode }: { mode: 'settings' | 'privacy' | 'notifications' | 'admin' | 'account' }) {
   if (mode === 'privacy') return <PrivacyPage />
   if (mode === 'notifications') return <NotificationsPage />
   if (mode === 'admin') return <AdminPage />
+  if (mode === 'account') return <AccountCenter />
   return <SettingsPage />
+}
+
+type Wallet = {
+  availableFen: number
+  availableDisplay: string
+  frozenDisplay: string
+  rechargeDisplay: string
+  spentDisplay: string
+}
+
+function AccountCenter() {
+  const [wallet, setWallet] = useState<Wallet | null>(null)
+  const [mail, setMail] = useState('')
+  const [sessions, setSessions] = useState<Array<{ id: string; userAgent: string | null; current: boolean }>>([])
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [message, setMessage] = useState('')
+  async function load() {
+    const data = await api<{ wallet: Wallet; mail: { transport: string; realDelivery: boolean }; imageGeneration: string }>('/api/account')
+    setWallet(data.wallet)
+    setMail(data.mail.transport === 'fixture' ? '邮箱验证走本地夹具，不是真实发信。' : '真实邮件传输未配置。验证和重置不会发出。')
+    if (data.imageGeneration !== 'not_implemented') setMessage('生图状态异常')
+    const listed = await api<{ sessions: Array<{ id: string; userAgent: string | null; current: boolean }> }>('/api/account/sessions')
+    setSessions(listed.sessions)
+  }
+  useEffect(() => { void load() }, [])
+  return (
+    <main className="page">
+      <h1>个人中心</h1>
+      <p className="muted">D/ Deep Companion 的账户、余额和设备会话。这里不填写供应商 Key。</p>
+      <section className="panel" data-testid="wallet-panel">
+        <h2>余额</h2>
+        <p data-testid="wallet-available">可用 ¥{wallet?.availableDisplay ?? '…'}</p>
+        <p className="muted">冻结 ¥{wallet?.frozenDisplay ?? '…'} · 累计充值 ¥{wallet?.rechargeDisplay ?? '…'} · 累计消费 ¥{wallet?.spentDisplay ?? '…'}</p>
+        <p>充值档位 ¥5.00、¥10.00、¥20.00、¥50.00、¥100.00。真实充值未开放，点选不会到账。</p>
+        <div className="row">
+          {['5.00', '10.00', '20.00', '50.00', '100.00'].map((amount) => (
+            <button key={amount} className="ghost" type="button" disabled>¥{amount}</button>
+          ))}
+        </div>
+        <p data-testid="payment-closed">真实支付未接入。测试入账只在显式测试适配器里发生，不能当成真实到账。</p>
+        <p data-testid="image-unimplemented">生图未实现。</p>
+      </section>
+      <form className="panel" onSubmit={async (event: FormEvent) => {
+        event.preventDefault()
+        try {
+          await api('/api/account/password', { method: 'POST', body: { currentPassword, newPassword } })
+          setMessage('密码已更新')
+        } catch (caught) {
+          setMessage(caught instanceof ApiError ? caught.message : '密码更新失败')
+        }
+      }}>
+        <h2>修改密码</h2>
+        <label>当前密码<input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+        <label>新密码<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+        <button className="primary" type="submit">更新密码</button>
+      </form>
+      <section className="panel">
+        <h2>设备会话</h2>
+        <p className="muted">{mail}</p>
+        {sessions.map((session) => (
+          <div className="list-item" key={session.id}>
+            <span>{session.current ? '当前会话' : '其他会话'} {session.userAgent ?? ''}</span>
+            <button className="ghost" type="button" onClick={async () => { await api(`/api/account/sessions/${session.id}/revoke`, { body: {} }); await load() }}>撤销</button>
+          </div>
+        ))}
+      </section>
+      {message ? <p>{message}</p> : null}
+    </main>
+  )
 }
 
 function SettingsPage() {
@@ -152,9 +223,11 @@ function AdminPage() {
   const [count, setCount] = useState(1)
   const [codes, setCodes] = useState<string[]>([])
   const [stats, setStats] = useState<Record<string, unknown> | null>(null)
+  const [money, setMoney] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState('')
   async function load() {
     setStats(await api<Record<string, unknown>>('/api/admin/stats'))
+    setMoney(await api<Record<string, unknown>>('/api/admin/money'))
   }
   useEffect(() => { if (user?.role === 'admin') void load() }, [user])
   if (user && user.role !== 'admin') return <Navigate to="/" replace />
@@ -183,6 +256,13 @@ function AdminPage() {
           <p>prompt tokens {String(stats.promptTokens)} · completion tokens {String(stats.completionTokens)}</p>
           <p>按配置单价计算的 micro-USD：{String(stats.calculatedCostMicroUsd)}。未知成本行 {String(stats.unknownCostRows)}。夹具行 {String(stats.fixtureRows)}。</p>
           <p>{String(stats.costNote)}</p>
+        </div>
+      ) : null}
+      {money ? (
+        <div className="panel" data-testid="admin-money">
+          <p>预收充值 ¥{String(money.prepaidRechargeDisplay)}。这不是服务收入。</p>
+          <p>夹具扣费 {String(money.fixtureChargeFen)} 分。估算服务收入 {String(money.estimatedServiceChargeFen)} 分。未知成本行 {String(money.unknownCostRows)}。</p>
+          <p>{String(money.note)}</p>
         </div>
       ) : null}
     </main>

@@ -1,5 +1,6 @@
 import { loadConfig } from './config.ts'
-import { createInvitations, initAdmin } from './auth.ts'
+import { createInvitations } from './auth.ts'
+import { initAdmin } from './identity.ts'
 import { migrate, openDatabase } from './db.ts'
 
 const [command, ...args] = process.argv.slice(2)

@@ -31,6 +31,16 @@ export function AuthPages({ mode }: { mode: 'login' | 'register' }) {
       <p className="brand"><span className="mark">D/</span> Deep Companion</p>
       <h1>{mode === 'login' ? '登录' : '邀请注册'}</h1>
       <p className="muted">普通用户不填写模型供应商 Key。模型调用只经过服务端网关。</p>
+      {mode === 'login' ? (
+        <button className="ghost" type="button" data-testid="forgot-password" onClick={async () => {
+          try {
+            await api('/api/account/password/forgot', { body: { email } })
+            setError('如果配置了邮件夹具，重置入口只在夹具信箱里。这不是真实发信。')
+          } catch (caught) {
+            setError(caught instanceof ApiError ? caught.message : '重置失败')
+          }
+        }}>忘记密码</button>
+      ) : null}
       <form className="panel" onSubmit={(event) => void submit(event)}>
         {error ? <p className="error">{error}</p> : null}
         <label>邮箱<input data-testid="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" /></label>

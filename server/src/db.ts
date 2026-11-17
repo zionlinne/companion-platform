@@ -29,6 +29,8 @@ export function migrate(db: DatabaseSync, migrationsDir = path.resolve(here, '..
   for (const file of files) {
     if (applied.has(file)) continue
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8')
+    const unlockForeignKeys = sql.includes('-- pragma-fk-off')
+    if (unlockForeignKeys) db.exec('PRAGMA foreign_keys = OFF')
     db.exec('BEGIN IMMEDIATE')
     try {
       db.exec(sql)
@@ -42,6 +44,8 @@ export function migrate(db: DatabaseSync, migrationsDir = path.resolve(here, '..
         // The failed statement already ended the transaction.
       }
       throw error
+    } finally {
+      if (unlockForeignKeys) db.exec('PRAGMA foreign_keys = ON')
     }
   }
   return ran

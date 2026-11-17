@@ -6,6 +6,7 @@ import { streamCompletion } from './gateway.ts'
 import { newId, nowIso } from './http.ts'
 import type { Logger } from './log.ts'
 import { assembleInitiativePrompt, costMicroUsd, type PersonaCard } from './prompt.ts'
+import { billingMode, gatewayPaused } from './wallet.ts'
 import type { GrantRow, InitiativeSettingsRow } from './types.ts'
 
 export function inQuietHours(now: Date, start: number | null, end: number | null): boolean {
@@ -53,6 +54,10 @@ export async function tickInitiative(
   }
   if (!gatewayConfigured(config)) {
     return { status: 'skipped', reason: 'model_gateway_unconfigured' }
+  }
+  if (gatewayPaused(db)) return { status: 'skipped', reason: 'gateway_paused' }
+  if (billingMode(config) === 'cny' || billingMode(config) === 'fx') {
+    return { status: 'skipped', reason: 'initiative_billing_not_settled' }
   }
   const dayStart = new Date(now)
   dayStart.setUTCHours(0, 0, 0, 0)

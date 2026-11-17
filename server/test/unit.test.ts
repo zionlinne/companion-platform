@@ -5,6 +5,7 @@ import { createLogger } from '../src/log.ts'
 import { dedupeImports, memoryPackage, parseMemoryImport } from '../src/memory-import.ts'
 import { loadConfig } from '../src/config.ts'
 import { hashPassword, verifyPassword } from '../src/password.ts'
+import { fenFromMicroUsd, formatFen, userChargeFen } from '../src/money.ts'
 import { assembleCompanionPrompt, assembleWorkspacePrompt, costMicroUsd, PROMPT_LIMITS } from '../src/prompt.ts'
 
 test('password hash verifies and does not store the raw password', async () => {
@@ -121,4 +122,13 @@ test('quiet hours use UTC minutes and wrap past midnight', () => {
   assert.equal(inQuietHours(noon, 13 * 60, 14 * 60), false)
   assert.equal(inQuietHours(new Date('2026-11-17T23:30:00.000Z'), 22 * 60, 60), true)
   assert.equal(inQuietHours(noon, null, null), false)
+})
+
+test('wallet math stays in integer fen', () => {
+  assert.equal(userChargeFen(70, 3000), 100)
+  assert.equal(formatFen(500), '5.00')
+  assert.equal(formatFen(400), '4.00')
+  assert.equal(formatFen(100), '1.00')
+  assert.equal(fenFromMicroUsd(1_000_000, 720), 720)
+  assert.throws(() => userChargeFen(1.5, 3000))
 })

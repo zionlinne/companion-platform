@@ -6,7 +6,9 @@ export type MemoryStatus = 'active' | 'suggested' | 'rejected'
 export type UserRow = {
   id: string
   email: string
-  password_hash: string
+  password_hash: string | null
+  email_verified?: number
+  banned?: number | null
   display_name: string
   role: Role
   created_at: string

@@ -6,6 +6,8 @@
 
 这是给人手测交互的固定版本，不是公开网站，也没有预置试用账号。请在本机启动。没有供应商 Key 时，真实模型对话不可用，页面不能把夹具回复当成 DeepSeek。原始日志在 `docs/evidence/companion-platform-trial-logs.zip`，绑定上面的提交；`npm test`、`npm run typecheck`、`npm run build`、`npm run e2e` 退出码都是 0。截图在 `docs/evidence/screenshots/`。
 
+分支上更晚的提交继续做了账户和钱包，没有改写这个检查点，也没有覆盖上面的日志包。那些提交的启动方式、接口和完成情况在 `docs/ACCOUNT.md`。按本页手测时请检出上面的固定提交。
+
 ## 启动
 
 需要 Node.js 22。

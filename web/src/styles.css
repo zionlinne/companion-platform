@@ -3,7 +3,31 @@
   background: #f4f1ea;
   font-family: "Avenir Next", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
   line-height: 1.5;
+  color-scheme: light;
 }
+:root[data-theme="dark"] {
+  color: #f4f1ea;
+  background: #1c1915;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] a { color: #d5ebe3; }
+:root[data-theme="dark"] .nav,
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .bubble {
+  background: #2a2622;
+  border-color: #4a433a;
+  color: #f4f1ea;
+}
+:root[data-theme="dark"] .brand,
+:root[data-theme="dark"] .nav a,
+:root[data-theme="dark"] .nav button.linkish { color: #f4f1ea; }
+:root[data-theme="dark"] .nav a.active,
+:root[data-theme="dark"] .bubble.user { background: #23483d; }
+:root[data-theme="dark"] .muted { color: #c9c0b4; }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select { background: #1c1915; border-color: #4a433a; }
 
 * { box-sizing: border-box; }
 body { margin: 0; }

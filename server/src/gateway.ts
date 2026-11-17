@@ -57,6 +57,12 @@ export async function streamCompletion(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        ...(source === 'fixture' && config.fixturePromptTokens !== null
+          ? {
+              'X-Fixture-Prompt-Tokens': String(config.fixturePromptTokens),
+              'X-Fixture-Completion-Tokens': String(config.fixtureCompletionTokens ?? 0),
+            }
+          : {}),
       },
       body: JSON.stringify(body),
       signal: input.signal,

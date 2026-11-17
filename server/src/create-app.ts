@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { authenticate, createInvitations, createSession, listInvitations, registerUser, revokeToken, userFromToken } from './auth.ts'
+import { createInvitations, listInvitations } from './auth.ts'
 import {
   assertQuota,
   attachmentExcerpt,
@@ -20,9 +20,9 @@ import {
   asOptionalString,
   asString,
   assertCsrf,
+  applySetCookies,
   clearSessionCookie,
   clientIp,
-  cookies,
   HttpError,
   json,
   newId,
@@ -33,15 +33,41 @@ import {
   requireAdmin,
   requireUser,
   route,
-  setSessionCookie,
   type Route,
 } from './http.ts'
 import type { Ctx } from './http.ts'
+import {
+  changeAccountPassword,
+  createIdentity,
+  deleteIdentityRows,
+  listDeviceSessions,
+  listMailbox,
+  loginAccount,
+  passwordMatches,
+  registerAccount,
+  requestReset,
+  resetAccountPassword,
+  revokeDeviceSession,
+  signOutAccount,
+  userFromRequest,
+  verifyAccountEmail,
+} from './identity.ts'
 import { defaultInitiative, publicSettings, tickInitiative } from './initiative.ts'
 import type { Logger } from './log.ts'
 import { dedupeImports, memoryPackage, parseMemoryImport, type ImportItem } from './memory-import.ts'
 import { PERSONA_TEMPLATES } from './persona-templates.ts'
-import { verifyPassword } from './password.ts'
+import {
+  adjustWallet,
+  billingMode,
+  confirmTestRecharge,
+  createRechargeOrder,
+  gatewayPaused,
+  listLedger,
+  marginBps,
+  moneyStats,
+  ownWallet,
+  walletView,
+} from './wallet.ts'
 import { costMicroUsd } from './prompt.ts'
 import type {
   AttachmentRow,
@@ -284,6 +310,7 @@ function deleteUserData(ctx: Ctx, userId: string) {
   run(ctx.db, `DELETE FROM invitation_redemptions WHERE user_id = ?`, userId)
   run(ctx.db, `DELETE FROM sessions WHERE user_id = ?`, userId)
   run(ctx.db, `DELETE FROM quotas WHERE user_id = ?`, userId)
+  deleteIdentityRows(ctx.db, userId)
   run(ctx.db, `DELETE FROM users WHERE id = ?`, userId)
 }
 
@@ -319,6 +346,7 @@ function serveStatic(config: AppConfig, res: ServerResponse, pathname: string): 
 }
 
 export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logger }) {
+  const identity = createIdentity(deps.db, deps.config)
   const routes: Route[] = []
   const add = (method: string, pathname: string, handler: Route['handler']) => routes.push(route(method, pathname, handler))
 
@@ -353,14 +381,14 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/register', async (ctx) => {
     const body = await readJson(ctx.req)
-    const user = await registerUser(ctx.db, ctx.config, {
+    const { user, headers } = await registerAccount(identity, ctx.db, {
       email: String(body.email ?? ''),
       password: String(body.password ?? ''),
       invitationCode: String(body.invitationCode ?? ''),
       displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
+      username: typeof body.username === 'string' ? body.username : undefined,
     })
-    const token = createSession(ctx.db, ctx.config, user.id)
-    setSessionCookie(ctx.res, token, ctx.config)
+    applySetCookies(ctx.res, headers, ctx.config)
     ctx.log.info('registered', { userId: user.id })
     json(ctx.res, 201, { user: publicUser(user) })
   })
@@ -369,23 +397,23 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const ip = clientIp(ctx.req)
     if (tooManyLogins(ip, ctx.config.loginLimit)) throw new HttpError(429, 'rate_limited', 'Too many login attempts')
     const body = await readJson(ctx.req)
-    const email = String(body.email ?? '')
-    const password = String(body.password ?? '')
-    const user = await authenticate(ctx.db, email, password)
-    if (!user) {
-      markLoginFailure(ip)
-      ctx.log.info('login_failed', { email })
-      throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect')
+    try {
+      const { user, headers } = await loginAccount(identity, ctx.db, String(body.email ?? ''), String(body.password ?? ''))
+      applySetCookies(ctx.res, headers, ctx.config)
+      ctx.log.info('login', { userId: user.id })
+      json(ctx.res, 200, { user: publicUser(user) })
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 401) {
+        markLoginFailure(ip)
+        ctx.log.info('login_failed', {})
+      }
+      throw error
     }
-    const token = createSession(ctx.db, ctx.config, user.id)
-    setSessionCookie(ctx.res, token, ctx.config)
-    ctx.log.info('login', { userId: user.id })
-    json(ctx.res, 200, { user: publicUser(user) })
   })
 
   add('POST', '/api/logout', async (ctx) => {
-    revokeToken(ctx.db, cookies(ctx.req).cp_session)
-    clearSessionCookie(ctx.res, ctx.config)
+    const headers = await signOutAccount(identity, ctx.req)
+    applySetCookies(ctx.res, headers, ctx.config, true)
     json(ctx.res, 200, { ok: true })
   })
 
@@ -408,7 +436,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const body = await readJson(ctx.req)
     const count = Number(body.count ?? 1)
     const maxUses = Number(body.maxUses ?? 1)
-    const created = createInvitations(ctx.db, admin.id, count, maxUses, typeof body.note === 'string' ? body.note.slice(0, 200) : null)
+    const expiresAt = typeof body.expiresAt === 'string' ? body.expiresAt : null
+    const created = createInvitations(ctx.db, admin.id, count, maxUses, typeof body.note === 'string' ? body.note.slice(0, 200) : null, expiresAt)
     ctx.log.info('invitations_created', { adminId: admin.id, count: created.length })
     json(ctx.res, 201, {
       invitations: created,
@@ -1586,6 +1615,185 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     json(ctx.res, 200, { ok: true })
   })
 
+  add('GET', '/api/account', async (ctx) => {
+    const user = requireUser(ctx)
+    const profile = one<{ username: string | null; status: string; level: string; registered_at: string; last_login_at: string | null }>(
+      ctx.db,
+      `SELECT username, status, level, registered_at, last_login_at FROM user_profiles WHERE user_id = ?`,
+      user.id
+    )
+    json(ctx.res, 200, {
+      user: publicUser(user),
+      profile,
+      wallet: walletView(ownWallet(ctx.db, user.id)),
+      mail: { transport: ctx.config.mailTransport, realDelivery: false },
+      payment: { realPayment: false, testAdapter: ctx.config.allowTestPayments },
+      billing: { mode: billingMode(ctx.config), marginBps: marginBps(ctx.db, ctx.config), gatewayPaused: gatewayPaused(ctx.db) },
+      imageGeneration: 'not_implemented',
+    })
+  })
+
+  add('GET', '/api/account/sessions', async (ctx) => {
+    requireUser(ctx)
+    json(ctx.res, 200, { sessions: await listDeviceSessions(identity, ctx.req) })
+  })
+
+  add('POST', '/api/account/sessions/:id/revoke', async (ctx) => {
+    const user = requireUser(ctx)
+    await revokeDeviceSession(identity, ctx.db, ctx.req, user.id, ctx.params.id)
+    json(ctx.res, 200, { ok: true })
+  })
+
+  add('POST', '/api/account/password', async (ctx) => {
+    requireUser(ctx)
+    const body = await readJson(ctx.req)
+    await changeAccountPassword(identity, ctx.req, String(body.currentPassword ?? ''), String(body.newPassword ?? ''))
+    json(ctx.res, 200, { ok: true })
+  })
+
+  add('POST', '/api/account/password/forgot', async (ctx) => {
+    const ip = clientIp(ctx.req)
+    if (tooManyLogins(ip, ctx.config.loginLimit)) throw new HttpError(429, 'rate_limited', 'Too many login attempts')
+    const body = await readJson(ctx.req)
+    json(ctx.res, 200, await requestReset(identity, ctx.config, String(body.email ?? '')))
+  })
+
+  add('POST', '/api/account/password/reset', async (ctx) => {
+    const body = await readJson(ctx.req)
+    await resetAccountPassword(identity, String(body.token ?? ''), String(body.newPassword ?? ''))
+    json(ctx.res, 200, { ok: true, realDelivery: false })
+  })
+
+  add('POST', '/api/account/email/verify', async (ctx) => {
+    const body = await readJson(ctx.req)
+    await verifyAccountEmail(identity, ctx.config, String(body.token ?? ''))
+    json(ctx.res, 200, { ok: true, realDelivery: false })
+  })
+
+  add('GET', '/api/test/mailbox', async (ctx) => {
+    if (!ctx.config.allowMailFixture) throw new HttpError(404, 'not_found', 'Not found')
+    const email = ctx.url.searchParams.get('email') ?? ''
+    json(ctx.res, 200, { transport: 'fixture', realDelivery: false, messages: listMailbox(ctx.db, email) })
+  })
+
+  add('GET', '/api/wallet', async (ctx) => {
+    const user = requireUser(ctx)
+    json(ctx.res, 200, { wallet: walletView(ownWallet(ctx.db, user.id)), transactions: listLedger(ctx.db, user.id), realPayment: false })
+  })
+
+  add('POST', '/api/wallet/recharge', async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await readJson(ctx.req)
+    const amountFen = Number(body.amountFen)
+    const order = createRechargeOrder(ctx.db, user.id, amountFen, String(body.requestId ?? ''))
+    json(ctx.res, order.created ? 201 : 200, {
+      order,
+      credited: false,
+      realPayment: false,
+      message: '真实充值未开放。创建订单不会增加余额。',
+    })
+  })
+
+  add('POST', '/api/wallet/recharge/:id/test-confirm', async (ctx) => {
+    const user = requireUser(ctx)
+    const result = confirmTestRecharge(ctx.db, ctx.config, user.id, ctx.params.id)
+    json(ctx.res, 200, { ...result, wallet: walletView(ownWallet(ctx.db, user.id)) })
+  })
+
+  add('POST', '/api/images', async (ctx) => {
+    requireUser(ctx)
+    throw new HttpError(501, 'image_generation_not_implemented', '生图还没有实现。没有调用图像模型，也没有记一笔图像消费。')
+  })
+
+  add('GET', '/api/admin/users', async (ctx) => {
+    requireAdmin(ctx)
+    const q = ctx.url.searchParams.get('q')?.trim().toLowerCase() ?? ''
+    const rows = many<{ id: string; email: string; display_name: string; role: string; banned: number | null; created_at: string }>(
+      ctx.db,
+      `SELECT id, email, display_name, role, banned, created_at FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC`
+    ).filter((row) => !q || row.email.includes(q) || row.display_name.toLowerCase().includes(q))
+    json(ctx.res, 200, { users: rows })
+  })
+
+  add('POST', '/api/admin/users/:id/disable', async (ctx) => {
+    const admin = requireAdmin(ctx)
+    const body = await readJson(ctx.req)
+    const reason = asString(body.reason, 'reason', 1, 200)
+    const changed = run(ctx.db, `UPDATE users SET banned = 1, banReason = ? WHERE id = ? AND deleted_at IS NULL`, reason, ctx.params.id)
+    if (!changed) throw new HttpError(404, 'not_found', 'Not found')
+    run(ctx.db, `UPDATE user_profiles SET status = 'disabled' WHERE user_id = ?`, ctx.params.id)
+    run(ctx.db, `DELETE FROM auth_session WHERE userId = ?`, ctx.params.id)
+    run(
+      ctx.db,
+      `INSERT INTO admin_audit_logs (id, actor_id, action, target_id, reason, request_id, created_at) VALUES (?, ?, 'disable_user', ?, ?, NULL, ?)`,
+      newId(),
+      admin.id,
+      ctx.params.id,
+      reason,
+      nowIso()
+    )
+    json(ctx.res, 200, { ok: true })
+  })
+
+  add('POST', '/api/admin/users/:id/restore', async (ctx) => {
+    const admin = requireAdmin(ctx)
+    const changed = run(ctx.db, `UPDATE users SET banned = 0, banReason = NULL, banExpires = NULL WHERE id = ?`, ctx.params.id)
+    if (!changed) throw new HttpError(404, 'not_found', 'Not found')
+    run(ctx.db, `UPDATE user_profiles SET status = 'active' WHERE user_id = ?`, ctx.params.id)
+    run(
+      ctx.db,
+      `INSERT INTO admin_audit_logs (id, actor_id, action, target_id, reason, request_id, created_at) VALUES (?, ?, 'restore_user', ?, NULL, NULL, ?)`,
+      newId(),
+      admin.id,
+      ctx.params.id,
+      nowIso()
+    )
+    json(ctx.res, 200, { ok: true })
+  })
+
+  add('POST', '/api/admin/wallet/adjust', async (ctx) => {
+    const admin = requireAdmin(ctx)
+    const body = await readJson(ctx.req)
+    const direction = body.direction === 'debit' ? 'debit' : body.direction === 'credit' ? 'credit' : null
+    if (!direction) throw new HttpError(400, 'invalid_field', 'direction must be credit or debit')
+    const result = adjustWallet(ctx.db, admin.id, String(body.userId ?? ''), Number(body.amountFen), direction, String(body.reason ?? ''), String(body.requestId ?? ''))
+    json(ctx.res, 200, result)
+  })
+
+  add('GET', '/api/admin/ledger', async (ctx) => {
+    requireAdmin(ctx)
+    const userId = ctx.url.searchParams.get('userId') ?? ''
+    if (!userId) throw new HttpError(400, 'invalid_field', 'userId is required')
+    json(ctx.res, 200, { wallet: walletView(ownWallet(ctx.db, userId)), transactions: listLedger(ctx.db, userId) })
+  })
+
+  add('GET', '/api/admin/money', async (ctx) => {
+    requireAdmin(ctx)
+    json(ctx.res, 200, moneyStats(ctx.db))
+  })
+
+  add('POST', '/api/admin/gateway', async (ctx) => {
+    const admin = requireAdmin(ctx)
+    const body = await readJson(ctx.req)
+    if (typeof body.paused === 'boolean') {
+      run(ctx.db, `UPDATE app_settings SET value = ? WHERE key = 'gateway_paused'`, body.paused ? '1' : '0')
+    }
+    if (body.marginBps !== undefined) {
+      const next = Number(body.marginBps)
+      if (!Number.isSafeInteger(next) || next < 0 || next >= 10_000) throw new HttpError(400, 'invalid_field', 'marginBps must be an integer from 0 up to but not including 10000')
+      run(ctx.db, `UPDATE app_settings SET value = ? WHERE key = 'margin_bps'`, String(next))
+    }
+    run(
+      ctx.db,
+      `INSERT INTO admin_audit_logs (id, actor_id, action, target_id, reason, request_id, created_at) VALUES (?, ?, 'gateway_settings', NULL, ?, NULL, ?)`,
+      newId(),
+      admin.id,
+      JSON.stringify({ paused: body.paused ?? null, marginBps: body.marginBps ?? null }),
+      nowIso()
+    )
+    json(ctx.res, 200, { paused: gatewayPaused(ctx.db), marginBps: marginBps(ctx.db, ctx.config) })
+  })
+
   add('POST', '/api/feedback', async (ctx) => {
     const user = requireUser(ctx)
     const body = await readJson(ctx.req)
@@ -1620,7 +1828,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const user = requireUser(ctx)
     if (user.role === 'admin') throw new HttpError(400, 'admin_delete_disabled', 'The administrator account cannot be deleted here')
     const body = await readJson(ctx.req)
-    const ok = await verifyPassword(String(body.password ?? ''), user.password_hash)
+    const ok = await passwordMatches(ctx.db, user.id, String(body.password ?? ''))
     if (!ok) throw new HttpError(401, 'invalid_credentials', 'Password is incorrect')
     deleteUserData(ctx, user.id)
     clearSessionCookie(ctx.res, ctx.config)
@@ -1639,7 +1847,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       res,
       url,
       params: {},
-      user: userFromToken(deps.db, cookies(req).cp_session),
+      user: await userFromRequest(identity, deps.db, req),
     }
     try {
       if (url.pathname.startsWith('/api/')) assertCsrf(req)
