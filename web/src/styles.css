@@ -83,6 +83,32 @@ button.ghost { background: transparent; border: 1px solid #d9d2c5; border-radius
 .banner { background: #fff4d6; border: 1px solid #e6d39a; padding: 10px 12px; border-radius: 10px; margin-bottom: 12px; }
 .stack { display: grid; gap: 12px; }
 .list-item { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee7dc; }
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 64px);
+  min-height: 0;
+}
+.chat-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px 0;
+}
+.chat-toolbar .brand { margin: 0; font-size: 16px; }
+.ds-chat {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  --message-list-max-width: 840px;
+  --message-list-padding-horizontal: 44px;
+}
+@media (max-width: 1023px) {
+  .ds-chat {
+    --message-list-max-width: 712px;
+    --message-list-padding-horizontal: 36px;
+  }
+}
 .chat-log { display: grid; gap: 12px; }
 .bubble { border-radius: 16px; padding: 12px 14px; background: white; border: 1px solid #e6dfd3; }
 .bubble.user { background: #eef4f1; }

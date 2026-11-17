@@ -2,7 +2,7 @@
 
 原来的 debug APK 是开发证据，不是内测成品。普通用户不该在安装后先填服务器地址或供应商 Key。
 
-可分发内测包由 `npm run android:trial` 检查 `COMPANION_PUBLIC_ORIGIN`。它必须是真实 HTTPS 源，不能是本机、示例或占位域名。没有这个域名时命令打印 `BLOCKED` 并以状态 2 退出，不生成安装包，也不用假地址冒充完成。通过检查之后，构建会把这个源写进 `BuildConfig.TRIAL_ORIGIN`，应用直接打开站点，没有地址按钮，也没有 Key 输入。
+可分发内测包由 `npm run android:trial` 检查 `COMPANION_PUBLIC_ORIGIN`。它必须是真实 HTTPS 源，不能是本机、示例或占位域名。没有这个域名时命令打印 `BLOCKED` 并以状态 2 退出，不生成安装包，也不用假地址冒充完成。通过检查之后，构建会把这个源写进 `BuildConfig.TRIAL_ORIGIN`，应用直接打开站点，没有地址按钮，也没有 Key 输入。这次内测源是 `https://deep-companion.onrender.com`。
 
 debug 变体仍然保留地址选择器，只给开发者连本机服务。它和内测包不是同一个交付。
 
@@ -12,15 +12,15 @@ debug 变体仍然保留地址选择器，只给开发者连本机服务。它�
 
 ## 可安装和可聊天是两件事
 
-- 可安装：debug APK，`applicationId` 是 `app.deepcompanion.shell`，`versionName` 是 `0.1.0-debug`，`versionCode` 是 1。
-- 可聊天：现在没有。壳里没有预置服务器地址。USB 回环只是临时调试。将来的 HTTPS 地址要等父助手核实免费且能保存 SQLite 的宿主之后再填，本仓库不写死一个还不存在的 URL。
-- 静态网站托管不能代替这个后端。页面和 `/api` 必须由现在的 Node 进程一起提供，数据在 SQLite。
+- 可安装的 debug 包：`applicationId` 是 `app.deepcompanion.shell`，`versionName` 是 `0.1.0-debug`，`versionCode` 是 1。它没有预置地址，只给开发者连本机。
+- 可安装的内测包：同一个应用 id，`versionName` 是 `0.1.0-trial`，源锁定 `https://deep-companion.onrender.com`。页面和 `/api` 都由这个 Node 进程提供。供应商 Key 不在包里。
+- 这台环境没有手机或模拟器，所以没有把包装到设备上，也不能把打开网页说成已经在手机上聊天。没有供应商 Key 时，线上发送会失败，不会用夹具冒充。
 
 ## 地址怎么填
 
-打开应用后填写服务源，不要带路径、查询或账号。
+内测包不显示地址页，直接打开 `https://deep-companion.onrender.com`。下面这些只属于没有预置源的 debug 包。
 
-- 将来的正式地址必须是 `https://你的主机`。页面和 API 在同一个源。服务端设置 `STATIC_DIR` 指向 `web/dist`，并把 `COOKIE_SECURE=1`。TLS 在这台 Node 前面终止。证书错误不会被忽略，自签证书会打开失败。
+- debug 包打开后填写服务源，不要带路径、查询或账号。页面和 API 在同一个源。服务端设置 `STATIC_DIR` 指向 `web/dist`，并把 `COOKIE_SECURE=1`。TLS 在这台 Node 前面终止。证书错误不会被忽略，自签证书会打开失败。
 - 这个 debug 包可以临时填 `http://127.0.0.1:8787`。也允许 `http://localhost:8787` 和模拟器专用的 `http://10.0.2.2:8787`。其它 HTTP，包括局域网地址，会被拒绝。
 - 正式包的清单没有这些明文例外。`android:usesCleartextTraffic` 在主清单里是 `false`。
 - 地址存在应用私有的 `SharedPreferences`，只保存这一个 URL。登录会话仍是服务端原来的 `HttpOnly` Cookie `cp_session`，放在 WebView 的系统 Cookie 库里，不进 `localStorage`。更换地址会清掉这些 Cookie。右上角「地址」回到填写页。「清除本机 Cookie」也只清 Cookie 库。
@@ -66,12 +66,6 @@ adb install -r deep-companion-0.1.0-debug.apk
 
 ## 构建
 
-云端用的是 JDK 21、Android SDK 35/36 和 Build-Tools 35/36。命令是：
+云端用的是 JDK 21、Android SDK 35/36 和 Build-Tools 35/36。没有源时 `npm run android:trial` 只检查并退出。有真实 HTTPS 源时，它先执行 `npx cap sync android`，再执行 `./gradlew assembleDebug`，把源写进 `BuildConfig.TRIAL_ORIGIN`。
 
-```sh
-npx cap sync android
-cd android
-./gradlew assembleDebug
-```
-
-产物在 `android/app/build/outputs/apk/debug/app-debug.apk`。debug 网络配置只允许回环和 `10.0.2.2` 的明文，系统证书以外的用户证书不信任。
+产物在 `android/app/build/outputs/apk/debug/app-debug.apk`。带内测源时 `versionName` 是 `0.1.0-trial`。debug 网络配置只允许回环和 `10.0.2.2` 的明文，系统证书以外的用户证书不信任。内测源是 HTTPS，不走这些明文例外。
