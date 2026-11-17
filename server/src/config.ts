@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { readUpstreamSettings } from './upstream-request.ts'
 
 export const MODELS = [
   { id: 'deepseek-flash', label: 'deepseek-flash' },
@@ -32,6 +33,9 @@ export type AppConfig = {
   loginLimit: number
   defaultDailyRequests: number
   defaultDailyTokens: number
+  deepseekModel: string | null
+  reasoningEffort: 'low' | 'high' | 'max' | 'none'
+  temperature: number
 }
 
 const bool = (value: string | undefined, fallback: boolean) => {
@@ -84,6 +88,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   const databasePath = overrides.databasePath ?? env.DATABASE_PATH ?? path.resolve('data/app.sqlite')
   const dataDir = overrides.dataDir ?? env.DATA_DIR ?? path.resolve('data')
   const key = overrides.deepseekApiKey !== undefined ? overrides.deepseekApiKey : env.DEEPSEEK_API_KEY?.trim() || null
+  const upstream = readUpstreamSettings(env, {
+    baseUrl: overrides.deepseekBaseUrl,
+    model: overrides.deepseekModel,
+    reasoningEffort: overrides.reasoningEffort,
+    temperature: overrides.temperature,
+  })
   const config: AppConfig = {
     nodeEnv,
     host: overrides.host ?? env.HOST ?? '127.0.0.1',
@@ -95,7 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     cookieSecure: overrides.cookieSecure ?? bool(env.COOKIE_SECURE, false),
     gatewayMode,
     allowGatewayFixture,
-    deepseekBaseUrl: (overrides.deepseekBaseUrl ?? env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com').replace(/\/$/, ''),
+    deepseekBaseUrl: upstream.baseUrl,
     deepseekApiKey: key,
     fixtureBaseUrl: overrides.fixtureBaseUrl ?? env.FIXTURE_BASE_URL ?? null,
     prices: overrides.prices ?? parsePrices(env.MODEL_PRICE_JSON),
@@ -104,6 +114,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     loginLimit: overrides.loginLimit ?? Number(env.LOGIN_LIMIT ?? 30),
     defaultDailyRequests: overrides.defaultDailyRequests ?? Number(env.DEFAULT_DAILY_REQUESTS ?? 200),
     defaultDailyTokens: overrides.defaultDailyTokens ?? Number(env.DEFAULT_DAILY_TOKENS ?? 200_000),
+    deepseekModel: upstream.model,
+    reasoningEffort: upstream.reasoningEffort,
+    temperature: upstream.temperature,
   }
   if (config.gatewayMode === 'fixture' && !config.fixtureBaseUrl) {
     throw new Error('Fixture gateway mode requires FIXTURE_BASE_URL')

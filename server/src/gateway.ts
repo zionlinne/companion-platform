@@ -1,6 +1,7 @@
 import type { AppConfig } from './config.ts'
 import { gatewayConfigured } from './config.ts'
 import type { PromptMessage } from './prompt.ts'
+import { buildLiveChatBody } from './upstream-request.ts'
 
 export class GatewayError extends Error {
   code: 'model_gateway_unconfigured' | 'provider_error' | 'provider_unreachable'
@@ -41,18 +42,31 @@ export async function streamCompletion(
     )
   }
   const source = config.gatewayMode === 'fixture' ? 'fixture' : 'live'
-  const base = source === 'fixture' ? config.fixtureBaseUrl! : config.deepseekBaseUrl
   const apiKey = config.deepseekApiKey ?? (source === 'fixture' ? 'fixture-local' : '')
-  const body: Record<string, unknown> = {
-    model: input.model,
-    messages: input.messages,
-    stream: true,
-    stream_options: { include_usage: true },
-  }
-  if (input.thinking) body.thinking = { type: 'enabled' }
+  const live = source === 'live'
+    ? buildLiveChatBody(
+        {
+          baseUrl: config.deepseekBaseUrl,
+          model: config.deepseekModel,
+          reasoningEffort: config.reasoningEffort,
+          temperature: config.temperature,
+        },
+        { model: input.model, messages: input.messages }
+      )
+    : null
+  const body: Record<string, unknown> = live
+    ? live.body
+    : {
+        model: input.model,
+        messages: input.messages,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...(input.thinking ? { thinking: { type: 'enabled' } } : {}),
+      }
+  const url = live ? live.url : `${config.fixtureBaseUrl}/chat/completions`
   let response: Response
   try {
-    response = await fetch(`${base}/chat/completions`, {
+    response = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
