@@ -52,7 +52,10 @@ import type {
   MessageRow,
 } from './types.ts'
 
-const CATEGORIES = new Set<MemoryCategory>(['persona', 'fact', 'event', 'relationship'])
+const CATEGORIES = new Set<MemoryCategory>([
+  'persona', 'fact', 'event', 'relationship', 'preference', 'habit', 'experience',
+  'plan', 'shared_event', 'topic', 'open_item', 'background',
+])
 const COMPANION_LIMIT = 5
 
 async function companionCount(db: Ctx['db'], userId: string): Promise<number> {
@@ -110,7 +113,9 @@ function characterJson(row: CharacterRow) {
 function memoryJson(row: MemoryRow) {
   return {
     id: row.id,
+    memoryId: row.id,
     characterId: row.character_id,
+    relatedPersonaId: row.character_id,
     category: row.category,
     content: row.content,
     source: row.source,
@@ -119,6 +124,11 @@ function memoryJson(row: MemoryRow) {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    lastConfirmedAt: row.last_confirmed_at ?? null,
+    confidence: row.confidence == null ? null : Number(row.confidence),
+    supersedesId: row.supersedes_id ?? null,
+    supersededBy: row.superseded_by ?? null,
+    space: row.space ?? 'companion',
   }
 }
 
@@ -281,6 +291,8 @@ async function deleteUserData(ctx: Ctx, userId: string) {
   await run(ctx.db, `DELETE FROM usage_ledger WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM feedback WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM memory_previews WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM memory_jobs WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM memory_applies WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM attachments WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM messages WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM conversations WHERE user_id = ?`, userId)
@@ -807,13 +819,16 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
     const user = requireUser(ctx)
     await ownCharacter(ctx, ctx.params.id)
     const status = ctx.url.searchParams.get('status') ?? 'active'
-    if (!['active', 'suggested', 'rejected'].includes(status)) throw new HttpError(400, 'invalid_field', 'Invalid status')
+    const known = ['active', 'suggested', 'rejected', 'superseded', 'expired', 'uncertain']
+    if (status !== 'trace' && !known.includes(status)) throw new HttpError(400, 'invalid_field', 'Invalid status')
     const rows = await many<MemoryRow>(
       ctx.db,
-      `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = ? ORDER BY updated_at DESC`,
+      status === 'trace'
+        ? `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status IN ('active', 'superseded', 'expired', 'uncertain') ORDER BY created_at ASC`
+        : `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = ? ORDER BY updated_at DESC`,
       ctx.params.id,
       user.id,
-      status
+      ...(status === 'trace' ? [] : [status])
     )
     json(ctx.res, 200, { memories: rows.map(memoryJson) })
   })
@@ -855,11 +870,14 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
       status: 'active',
       created_at: at,
       updated_at: at,
+      last_confirmed_at: body.explicit === false ? null : at,
+      confidence: body.explicit === false ? 0.4 : 1,
+      space: 'companion',
     }
     await run(
       ctx.db,
-      `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '', 'active', ?, ?)`,
+      `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at, last_confirmed_at, confidence, space)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '', 'active', ?, ?, ?, ?, 'companion')`,
       row.id,
       row.user_id,
       row.character_id,
@@ -868,7 +886,9 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
       row.source,
       row.explicit,
       at,
-      at
+      at,
+      row.last_confirmed_at,
+      row.confidence
     )
     json(ctx.res, 201, { memory: memoryJson(row) })
   })
@@ -909,7 +929,16 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
     const body = await readJson(ctx.req)
     const explicit = body.explicit === undefined ? 0 : asBool(body.explicit) ? 1 : 0
     const at = nowIso()
-    await run(ctx.db, `UPDATE memories SET status='active', explicit=?, updated_at=? WHERE id=?`, explicit, at, current.id)
+    await run(
+      ctx.db,
+      `UPDATE memories SET status='active', explicit=?, last_confirmed_at=?, confidence=CASE WHEN ? = 1 THEN 1 ELSE confidence END, updated_at=? WHERE id=? AND user_id=?`,
+      explicit,
+      at,
+      explicit,
+      at,
+      current.id,
+      user.id
+    )
     json(ctx.res, 200, { memory: memoryJson((await one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ?`, current.id))!) })
   })
 
@@ -969,11 +998,13 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
         status: 'suggested',
         created_at: at,
         updated_at: at,
+        confidence: 0.4,
+        space: 'companion',
       }
       await run(
         ctx.db,
-        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'model-suggestion', 0, ?, 'suggested', ?, ?)`,
+        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at, confidence, space)
+         VALUES (?, ?, ?, ?, ?, 'model-suggestion', 0, ?, 'suggested', ?, ?, 0.4, 'companion')`,
         row.id,
         row.user_id,
         row.character_id,
@@ -1093,11 +1124,14 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
         status: 'active',
         created_at: createdAt,
         updated_at: updatedAt,
+        last_confirmed_at: item.explicit ? at : null,
+        confidence: item.explicit ? 1 : 0.4,
+        space: 'companion',
       }
       await run(
         ctx.db,
-        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at, last_confirmed_at, confidence, space)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'companion')`,
         row.id,
         row.user_id,
         row.character_id,
@@ -1107,7 +1141,9 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
         row.explicit,
         row.note,
         createdAt,
-        updatedAt
+        updatedAt,
+        row.last_confirmed_at,
+        row.confidence
       )
       created.push(row)
     }

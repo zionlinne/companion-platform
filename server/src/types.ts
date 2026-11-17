@@ -1,7 +1,19 @@
 export type Role = 'admin' | 'user'
 export type Space = 'workspace' | 'companion'
-export type MemoryCategory = 'persona' | 'fact' | 'event' | 'relationship'
-export type MemoryStatus = 'active' | 'suggested' | 'rejected'
+export type MemoryCategory =
+  | 'persona'
+  | 'fact'
+  | 'event'
+  | 'relationship'
+  | 'preference'
+  | 'habit'
+  | 'experience'
+  | 'plan'
+  | 'shared_event'
+  | 'topic'
+  | 'open_item'
+  | 'background'
+export type MemoryStatus = 'active' | 'suggested' | 'rejected' | 'superseded' | 'expired' | 'uncertain'
 
 export type UserRow = {
   id: string
@@ -57,7 +69,7 @@ export type CharacterRow = {
 export type MemoryRow = {
   id: string
   user_id: string
-  character_id: string
+  character_id: string | null
   category: MemoryCategory
   content: string
   source: string
@@ -66,6 +78,11 @@ export type MemoryRow = {
   status: MemoryStatus
   created_at: string
   updated_at: string
+  last_confirmed_at?: string | null
+  confidence?: number | null
+  supersedes_id?: string | null
+  superseded_by?: string | null
+  space?: 'companion' | 'workspace'
 }
 
 export type ConversationRow = {

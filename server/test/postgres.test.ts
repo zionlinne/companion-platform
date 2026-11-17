@@ -7,7 +7,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createInvitations, initAdmin } from '../src/auth.ts'
 import { loadConfig } from '../src/config.ts'
-import { migrate, openDatabase } from '../src/db.ts'
+import { migrate, migrationSql, openDatabase } from '../src/db.ts'
+import { applyMemoryDecision } from '../src/memory-engine.ts'
 import { startFixture } from '../src/fixture-provider.ts'
 import { api, sse } from './harness.ts'
 
@@ -97,19 +98,82 @@ test('postgres schema, isolation, limits, disabled uploads, and restart persiste
     }
   )
   const db = openDatabase(config)
+  const migrationsDir = path.join(root, 'server/migrations')
+  await db.exec(migrationSql(fs.readFileSync(path.join(migrationsDir, '001_init.sql'), 'utf8'), 'postgres'))
+  await db.exec(migrationSql(fs.readFileSync(path.join(migrationsDir, '002_memory_note.sql'), 'utf8'), 'postgres'))
+  await db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`)
+  const stamped = '2024-01-01T00:00:00.000Z'
+  await db.run(`INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)`, ['001_init.sql', stamped])
+  await db.run(`INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)`, ['002_memory_note.sql', stamped])
+  await db.run(
+    `INSERT INTO users (id, email, password_hash, display_name, role, created_at, updated_at) VALUES (?, ?, 'hash', 'legacy', 'user', ?, ?)`,
+    ['legacy-user', 'legacy@example.com', stamped, stamped]
+  )
+  await db.run(
+    `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
+     VALUES (?, ?, '旧', '', '', '', '', '短句', '', '', '', 'deepseek-flash', 0, ?, ?)`,
+    ['legacy-char', 'legacy-user', stamped, stamped]
+  )
+  await db.run(
+    `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
+     VALUES (?, ?, ?, 'fact', ?, 'user', 1, ?, 'active', ?, ?)`,
+    ['legacy-memory', 'legacy-user', 'legacy-char', '旧记忆不能丢', '原备注', stamped, '2024-02-01T00:00:00.000Z']
+  )
   const applied = await migrate(db)
-  assert.deepEqual(applied, ['001_init.sql', '002_memory_note.sql'])
+  assert.deepEqual(applied, ['003_memory_engine.sql'])
   assert.deepEqual(await migrate(db), [])
   const tables = await db.all<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
   )
-  for (const required of ['users', 'characters', 'memories', 'conversations', 'timeline_grants', 'schema_migrations']) {
+  for (const required of ['users', 'characters', 'memories', 'conversations', 'timeline_grants', 'schema_migrations', 'memory_jobs', 'memory_applies']) {
     assert.equal(tables.some((row) => row.table_name === required), true, required)
   }
   const note = await db.get<{ data_type: string }>(
     `SELECT data_type FROM information_schema.columns WHERE table_name = 'memories' AND column_name = 'note'`
   )
   assert.equal(note?.data_type, 'text')
+  for (const column of ['last_confirmed_at', 'confidence', 'supersedes_id', 'superseded_by', 'space']) {
+    const found = await db.get<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'memories' AND column_name = ?`,
+      [column]
+    )
+    assert.equal(found?.column_name, column)
+  }
+  const kept = await db.get<{ content: string; note: string; space: string; status: string; confidence: number; created_at: string }>(
+    `SELECT content, note, space, status, confidence, created_at FROM memories WHERE id = ?`,
+    ['legacy-memory']
+  )
+  assert.equal(kept?.content, '旧记忆不能丢')
+  assert.equal(kept?.note, '原备注')
+  assert.equal(kept?.space, 'companion')
+  assert.equal(kept?.status, 'active')
+  assert.equal(Number(kept?.confidence), 1)
+  assert.equal(kept?.created_at, stamped)
+  const corrected = await applyMemoryDecision(
+    db,
+    { userId: 'legacy-user', space: 'companion', characterId: 'legacy-char' },
+    {
+      action: 'expire',
+      category: 'fact',
+      content: '不再使用 Cursor，改用 Vim',
+      target: '旧记忆不能丢',
+      change: 'fact_changed',
+      confidence: 0.95,
+      uncertain: false,
+      source: 'model_inferred',
+      explicit: false,
+    },
+    'pg-legacy-correction'
+  )
+  assert.equal(corrected.result, 'expired')
+  const historic = await db.get<{ content: string; status: string; created_at: string; superseded_by: string | null }>(
+    `SELECT content, status, created_at, superseded_by FROM memories WHERE id = ?`,
+    ['legacy-memory']
+  )
+  assert.equal(historic?.content, '旧记忆不能丢')
+  assert.equal(historic?.status, 'expired')
+  assert.equal(historic?.created_at, stamped)
+  assert.equal(historic?.superseded_by, corrected.memoryId)
   const admin = await initAdmin(db, config, 'admin@example.com', 'AdminPassw0rd!123')
   const invites = await createInvitations(db, admin.id, 3, 1, 'pg')
   await db.close()

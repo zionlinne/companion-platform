@@ -4,6 +4,29 @@
 
 服务端测试和浏览器端到端都在本分支跑过。浏览器聊天走的是显式夹具，横幅写明不是 DeepSeek。没有供应商 Key，所以「真实角色聊天」仍然是 BLOCKED，不能写成通过。每个账号最多 5 个 Companion，创建、复制和导入在同一个写事务里计数。人手测步骤在 `docs/TRIAL.md`，截图在 `docs/evidence/screenshots/`。账户、钱包和 Better Auth 替换不在这份检查点里。
 
+## 长期记忆
+
+2026-11-17，在 `3cdde333c9addafb718080603f6770dda9b3fc63` 之上增量加入。人格卡仍是 `characters`。连续记忆仍是 `memories`，用 `003_memory_engine.sql` 扩状态并复制旧行。模型提取走原来的 `streamCompletion`。测试里的模型输出是标明的 stub，不是 DeepSeek。没有供应商 Key，所以真实模型提取没有测。
+
+聊天先把回复写完。提取在回复之后、同一进程里进行。写失败、坏 JSON 和超时不会把已经完成的聊天改成失败。同一条消息最多尝试 3 次。免费托管休眠或重启可能丢掉还没写完的提取，这不是可靠队列。
+
+| # | 项 | 结果 |
+| --- | --- | --- |
+| 1 | 明确要求保存 | 通过。`请记住` 写入 `user_requested`，`长期偏好` 写入 `user_stated`。不因后续空提取而失效。 |
+| 2 | 普通对话的长期价值 | 通过，stub。普通句子在空 stub 下不落库。stub 返回的习惯写入 `model_inferred`，不能把来源改成用户原话。 |
+| 3 | 自然纠错 | 通过。用户「更正」和 stub 的 `fact_changed` 都会定位旧行。 |
+| 4 | 新值替换当前 | 通过。旧行 `expired` 或 `superseded`，新行 `active`。 |
+| 5 | 历史追溯 | 通过。旧 `content` 和 `created_at` 还在，`superseded_by` 指向新行。`GET ?status=trace` 能读到。 |
+| 6 | 新会话召回 | 通过。新会话只注入和当前话题重叠的 active 记忆。 |
+| 7 | 人格跨会话 | 通过。人格卡字段在多次会话后不变，并单独放在 `[Persona]`。 |
+| 8 | 普通聊天不改人格 | 通过。stub 里的 `category: persona` 被丢弃，角色行不更新。 |
+| 9 | 无关记忆不污染 | 通过。排序代码的提示词不含猫和茶。下雨的提示词不含游泳。 |
+| 10 | 跨用户隔离 | 通过。另一个账号读记忆得到 404。 |
+
+另外：另一个角色和 Workspace 读不到这条陪伴记忆；并发纠错只留下一条当前记录；重复键不插第二条；坏 JSON、30ms 超时、写库失败都不抛到聊天；SQLite 和 Postgres 都先保留旧行再跑 003。低置信度不会覆盖用户明确记忆。目标有两条同样匹配时不覆盖。主动提醒提示词仍只有授权时间线字段。
+
+`npm test` 39 项通过。`npm run typecheck`、`npm run build`、`npm run e2e`、`npm run e2e:mobile` 通过。浏览器端到端用的是夹具，不是真实模型。
+
 真实供应商对话这一项是 **BLOCKED**：没有获准使用的 `DEEPSEEK_API_KEY`，也没有搜索或使用任何旧密钥。`live` 模式在没有 Key 时返回 `model_gateway_unconfigured`，不插入假回复。夹具模式必须显式打开，回复带 `fixture-reply:` 或 `主动提醒：`，并在网关状态里标明 `realProvider: false`。
 
 构建和测试的原始输出在 `docs/evidence/companion-platform-logs.zip`。压缩包里的 `manifest.txt` 绑定代码 commit `a066c9460fbbbc8e206d093682111caf7304daa8`。当时 Node v22.23.4，`npm test`、`npm run typecheck`、`npm run build`、`npm run e2e` 的退出码都是 0。这次记录没有覆盖更早的失败日志，因为这四条命令一次通过。夹具浏览器聊天不算真实模型通过。

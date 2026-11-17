@@ -5,14 +5,16 @@ import { gatewayConfigured } from './config.ts'
 import { many, one, run } from './db.ts'
 import { GatewayError, streamCompletion } from './gateway.ts'
 import { HttpError, newId, nowIso, type Ctx } from './http.ts'
+import { loadActiveMemories, observeChatTurn, trackObservation } from './memory-engine.ts'
 import {
   assembleCompanionPrompt,
   assembleWorkspacePrompt,
   costMicroUsd,
   type HistoryTurn,
+  type MemorySnippet,
   type PersonaCard,
 } from './prompt.ts'
-import type { AttachmentRow, CharacterRow, ConversationRow, MemoryRow, MessageRow, QuotaRow } from './types.ts'
+import type { AttachmentRow, CharacterRow, ConversationRow, MessageRow, QuotaRow } from './types.ts'
 
 export async function ownConversation(ctx: Ctx, id: string): Promise<ConversationRow> {
   const row = await one<ConversationRow>(
@@ -149,29 +151,31 @@ export async function streamAssistant(
     conversation.id,
     ctx.user!.id
   )
-  const memories = character
-    ? await many<MemoryRow>(
-        ctx.db,
-        `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active' ORDER BY updated_at DESC`,
-        character.id,
-        ctx.user!.id
-      )
-    : []
+  const topic = [...input.history].reverse().find((turn) => turn.role === 'user')?.content
+  const memories = await loadActiveMemories(ctx.db, ctx.user!.id, conversation.space, conversation.character_id)
+  const snippets: MemorySnippet[] = memories.map((memory) => ({
+    category: memory.category,
+    content: memory.content,
+    source: memory.source,
+    updatedAt: memory.updated_at,
+    explicit: memory.explicit === 1,
+    status: memory.status,
+  }))
   const assembled =
     conversation.space === 'companion' && character
       ? assembleCompanionPrompt({
           persona: personaOf(character),
-          memories: memories.map((memory) => ({
-            category: memory.category,
-            content: memory.content,
-            source: memory.source,
-            updatedAt: memory.updated_at,
-            explicit: memory.explicit === 1,
-          })),
+          memories: snippets,
           history: input.history,
           attachmentExcerpt: input.attachmentExcerpt,
+          topic,
         })
-      : assembleWorkspacePrompt({ history: input.history, attachmentExcerpt: input.attachmentExcerpt })
+      : assembleWorkspacePrompt({
+          history: input.history,
+          attachmentExcerpt: input.attachmentExcerpt,
+          memories: snippets,
+          topic,
+        })
 
   ctx.res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -229,6 +233,21 @@ export async function streamAssistant(
       result.source,
       doneAt
     )
+    const userTurn = [...input.history].reverse().find((turn) => turn.role === 'user')
+    if (userTurn && input.parentId) {
+      trackObservation(observeChatTurn({
+        db: ctx.db,
+        config: ctx.config,
+        log: ctx.log,
+        userId: ctx.user!.id,
+        space: conversation.space,
+        characterId: conversation.character_id,
+        messageId: input.parentId,
+        userText: userTurn.content,
+        assistantText: content,
+        model: input.model,
+      }))
+    }
     sendEvent(ctx.res, 'done', {
       messageId: assistantId,
       promptTokens: result.promptTokens,
