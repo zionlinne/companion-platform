@@ -15,6 +15,7 @@ import { gatewayConfigured, isKnownModel, MODELS, type AppConfig, DEFAULT_MODEL 
 import { describeUpstream } from './upstream-request.ts'
 import { many, one, run, withTx, type SqlDb } from './db.ts'
 import { streamCompletion } from './gateway.ts'
+import { deleteEmbedding } from './memory-retrieval.ts'
 import {
   asBool,
   asOptionalString,
@@ -918,6 +919,7 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
       current.id,
       user.id
     )
+    if (content !== current.content) await deleteEmbedding(ctx.db, current.id)
     json(ctx.res, 200, { memory: memoryJson((await one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ?`, current.id))!) })
   })
 

@@ -66,7 +66,7 @@ test('sqlite migration keeps the old account, session, and memory at a zero bala
      ) VALUES ('mem-old', 'old-user', NULL, 'fact', 'OLD_MEMORY_KEEP', 'user-note', 1, '', 'active', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 1, 'workspace')`
   )
   const ran = await migrate(db)
-  assert.deepEqual(ran, ['004_wallet.sql'])
+  assert.deepEqual(ran, ['004_wallet.sql', '005_memory_embeddings.sql'])
   const user = await one<{ password_hash: string }>(db, `SELECT password_hash FROM users WHERE id = 'old-user'`)
   assert.equal(user?.password_hash, 'scrypt-keep')
   const session = await one<{ id: string }>(db, `SELECT id FROM sessions WHERE id = 'old-session'`)
@@ -96,7 +96,7 @@ test('postgres migration keeps the old account at a zero balance', async () => {
        VALUES ('old-session', 'old-user', 'hash-keep', '2020-01-01T00:00:00.000Z', '2099-01-01T00:00:00.000Z', NULL)`
     )
     const ran = await migrate(db)
-    assert.deepEqual(ran, ['004_wallet.sql'])
+    assert.deepEqual(ran, ['004_wallet.sql', '005_memory_embeddings.sql'])
     const user = await one<{ password_hash: string }>(db, `SELECT password_hash FROM users WHERE id = 'old-user'`)
     assert.equal(user?.password_hash, 'scrypt-keep')
     const session = await one<{ id: string }>(db, `SELECT id FROM sessions WHERE id = 'old-session'`)

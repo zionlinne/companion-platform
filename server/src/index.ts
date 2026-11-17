@@ -43,6 +43,7 @@ server.listen(config.port, config.host, () => {
     host: config.host,
     port,
     gatewayMode: config.gatewayMode,
+    embeddingMode: config.embeddingMode,
     uploads: config.uploads,
     gatewayConfigured: config.gatewayMode === 'fixture' || Boolean(config.deepseekApiKey),
   })

@@ -6,6 +6,7 @@ import { abortBill, billingState, closeBill, openBill } from './wallet.ts'
 import { HttpError, newId, nowIso } from './http.ts'
 import type { Logger } from './log.ts'
 import { locateScore, normalizeText, sameMemory } from './memory-text.ts'
+import { deleteEmbedding } from './memory-retrieval.ts'
 import type { PromptMessage } from './prompt.ts'
 import type { MemoryCategory, MemoryRow, MemoryStatus, Space } from './types.ts'
 
@@ -341,6 +342,7 @@ export async function applyMemoryDecision(db: SqlDb, scope: MemoryScope, decisio
           scope.userId
         )
         if (!changed) throw new Error('memory_conflict')
+        await deleteEmbedding(db, match.id)
         result = { result: nextStatus === 'expired' ? 'expired' : 'superseded', memoryId, previousId: match.id }
       }
     }
