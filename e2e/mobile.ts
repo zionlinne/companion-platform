@@ -92,6 +92,8 @@ try {
   await page.goto(`${baseUrl}/login`)
   await page.getByTestId('first-run').waitFor()
   const guide = await page.getByTestId('first-run').innerText()
+  const registration = await page.getByTestId('registration-state').innerText()
+  if (!registration.includes('没有邀请码')) throw new Error(`registration copy missing invite requirement: ${registration}`)
   if (!guide.includes('邀请码') || !guide.includes('Workspace') || !guide.includes('没有供应商 Key')) {
     throw new Error(`first-run guide missing product steps: ${guide}`)
   }

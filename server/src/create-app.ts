@@ -333,7 +333,8 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
   const add = (method: string, pathname: string, handler: Route['handler']) => routes.push(route(method, pathname, handler))
 
   add('GET', '/api/health', async (ctx) => {
-    json(ctx.res, 200, { ok: true })
+    const admin = await one<{ id: string }>(ctx.db, `SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL`)
+    json(ctx.res, 200, { ok: true, registration: admin ? 'needs_invite' : 'unavailable' })
   })
 
   add('GET', '/api/gateway', async (ctx) => {
@@ -369,7 +370,7 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
   })
 
   add('POST', '/api/admin/init', async () => {
-    throw new HttpError(404, 'not_found', 'Create the first administrator with the local CLI, not over HTTP')
+    throw new HttpError(404, 'not_found', 'The first administrator is created from server environment on startup, not over HTTP')
   })
 
   add('POST', '/api/register', async (ctx) => {

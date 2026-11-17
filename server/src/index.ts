@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { bootstrapAdmin } from './auth.ts'
 import { loadConfig } from './config.ts'
 import { createApp } from './create-app.ts'
 import { migrate, openDatabase } from './db.ts'
@@ -9,6 +10,7 @@ const config = loadConfig()
 const db = openDatabase(config)
 await migrate(db)
 const log = createLogger()
+await bootstrapAdmin(db, config, process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD, log)
 const app = createApp({ db, config, log })
 const server = http.createServer((req, res) => {
   void app.listener(req, res)

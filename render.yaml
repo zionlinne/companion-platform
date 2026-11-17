@@ -6,7 +6,8 @@ services:
     name: deep-companion
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    # NODE_ENV=production makes plain npm ci omit devDependencies, which drops tsc and @types/react.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run migrate && npm start
     healthCheckPath: /api/health
     envVars:
@@ -14,6 +15,8 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: HOST
         value: 0.0.0.0
       - key: COOKIE_SECURE

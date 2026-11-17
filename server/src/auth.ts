@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { AppConfig } from './config.ts'
 import { isUniqueViolation, many, one, run, withTx, type SqlDb } from './db.ts'
 import { HttpError, newId, nowIso, sha256 } from './http.ts'
+import type { Logger } from './log.ts'
 import { assertPasswordPolicy, hashPassword, verifyPassword } from './password.ts'
 import type { InvitationRow, SessionRow, UserRow } from './types.ts'
 
@@ -48,6 +49,32 @@ export async function insertQuota(db: SqlDb, userId: string, config: AppConfig, 
   )
 }
 
+async function insertAdminIfMissing(db: SqlDb, config: AppConfig, user: UserRow, at: string): Promise<'created' | 'exists' | 'email_taken'> {
+  return withTx(db, async () => {
+    if (db.kind === 'postgres') await db.get('SELECT pg_advisory_xact_lock(814398)')
+    const existing = await one<{ id: string }>(db, `SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL`)
+    if (existing) return 'exists'
+    try {
+      await run(
+        db,
+        `INSERT INTO users (id, email, password_hash, display_name, role, created_at, updated_at, last_seen_at, deleted_at)
+         VALUES (?, ?, ?, ?, 'admin', ?, ?, NULL, NULL)`,
+        user.id,
+        user.email,
+        user.password_hash,
+        user.display_name,
+        at,
+        at
+      )
+    } catch (error) {
+      if (isUniqueViolation(error)) return 'email_taken'
+      throw error
+    }
+    await insertQuota(db, user.id, config, at)
+    return 'created'
+  })
+}
+
 export async function initAdmin(db: SqlDb, config: AppConfig, email: string, password: string): Promise<UserRow> {
   const normalized = normalizeEmail(email)
   if (!EMAIL.test(normalized)) throw new HttpError(400, 'invalid_email', 'Invalid email')
@@ -56,14 +83,11 @@ export async function initAdmin(db: SqlDb, config: AppConfig, email: string, pas
   } catch {
     throw new HttpError(400, 'password_policy', 'Password must be 12-200 characters')
   }
-  const existing = await one<UserRow>(db, `SELECT * FROM users WHERE role = 'admin' AND deleted_at IS NULL`)
-  if (existing) throw new HttpError(409, 'admin_exists', 'An administrator already exists')
-  const passwordHash = await hashPassword(password)
   const at = nowIso()
   const user: UserRow = {
     id: newId(),
     email: normalized,
-    password_hash: passwordHash,
+    password_hash: await hashPassword(password),
     display_name: 'Administrator',
     role: 'admin',
     created_at: at,
@@ -71,21 +95,54 @@ export async function initAdmin(db: SqlDb, config: AppConfig, email: string, pas
     last_seen_at: null,
     deleted_at: null,
   }
-  await withTx(db, async () => {
-    await run(
-      db,
-      `INSERT INTO users (id, email, password_hash, display_name, role, created_at, updated_at, last_seen_at, deleted_at)
-       VALUES (?, ?, ?, ?, 'admin', ?, ?, NULL, NULL)`,
-      user.id,
-      user.email,
-      user.password_hash,
-      user.display_name,
-      at,
-      at
-    )
-    await insertQuota(db, user.id, config, at)
-  })
+  const outcome = await insertAdminIfMissing(db, config, user, at)
+  if (outcome === 'exists') throw new HttpError(409, 'admin_exists', 'An administrator already exists')
+  if (outcome === 'email_taken') throw new HttpError(409, 'email_taken', 'Email is already registered')
   return user
+}
+
+export async function bootstrapAdmin(
+  db: SqlDb,
+  config: AppConfig,
+  email: string | undefined,
+  password: string | undefined,
+  log: Logger
+): Promise<'skipped' | 'created' | 'exists' | 'rejected'> {
+  const trimmedEmail = email?.trim() ?? ''
+  const suppliedPassword = password ?? ''
+  if (!trimmedEmail && !suppliedPassword) {
+    log.info('admin_bootstrap', { result: 'skipped' })
+    return 'skipped'
+  }
+  if (!trimmedEmail || !suppliedPassword || !EMAIL.test(normalizeEmail(trimmedEmail))) {
+    log.error('admin_bootstrap', { result: 'rejected', reason: 'invalid_env' })
+    return 'rejected'
+  }
+  try {
+    assertPasswordPolicy(suppliedPassword)
+  } catch {
+    log.error('admin_bootstrap', { result: 'rejected', reason: 'password_policy' })
+    return 'rejected'
+  }
+  const at = nowIso()
+  const user: UserRow = {
+    id: newId(),
+    email: normalizeEmail(trimmedEmail),
+    password_hash: await hashPassword(suppliedPassword),
+    display_name: 'Administrator',
+    role: 'admin',
+    created_at: at,
+    updated_at: at,
+    last_seen_at: null,
+    deleted_at: null,
+  }
+  const outcome = await insertAdminIfMissing(db, config, user, at)
+  if (outcome === 'email_taken') {
+    log.error('admin_bootstrap', { result: 'rejected', reason: 'email_taken' })
+    return 'rejected'
+  }
+  log.info('admin_bootstrap', { result: outcome })
+  return outcome
 }
 
 export async function createInvitations(

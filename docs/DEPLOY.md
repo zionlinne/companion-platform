@@ -1,6 +1,6 @@
-# 免费部署准备
+# 免费部署
 
-这是 Render 免费 Web 服务加上外部 Postgres 的准备，不是已经上线的网站。仓库里没有公网地址，也没有创建 Render 或 Neon 资源。
+`https://deep-companion.onrender.com` 是父助手部署的 `d14fb5c`。本补丁还没有部署上去。这个代理不自行部署，也不读取生产密钥或连接串。
 
 ## 运行形态
 
@@ -8,7 +8,11 @@
 - 本机不设置 `DATABASE_URL` 时仍使用 SQLite，手测路径不变。
 - `COOKIE_SECURE` 在生产默认开启。`HOST` 默认 `0.0.0.0`，端口用平台的 `PORT`。
 - 页面和 `/api` 由同一个 Node 进程提供。反向代理终止 HTTPS。请求里如果带了 `Origin`，主机必须和 `Host` 一致，不会信任任意来源。
-- 没有公开的管理员初始化接口。第一次管理员仍用 `npm run admin:init`，邀请码用 `npm run admin:invite`。
+- 没有公开的管理员初始化接口。`POST /api/admin/init` 保持 404。
+- Render 没有 SSH 时，在服务端环境设置 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD`（12–200 字符，没有默认口令）。进程启动时只在还没有管理员时创建一次。已有管理员不会被覆盖，邮箱和密码不会写入日志。创建成功后可以从环境里删掉这两个变量。
+- 邀请码不由启动过程打印。管理员用自己的邮箱和密码打开站点并登录，在「管理」里生成邀请码，页面只显示一次。有 shell 的机器仍可用 `npm run admin:init` 和 `npm run admin:invite`。
+- `GET /api/health` 在没有管理员时返回 `registration: unavailable`。注册页这时明确写注册不可用，不会假装已经能注册。
+- 构建使用 `npm ci --include=dev`，并设置 `NPM_CONFIG_PRODUCTION=false`。`NODE_ENV=production` 否则会让 `npm ci` 丢掉 `typescript` 和 `@types/react`。
 - `DATABASE_URL` 和 `DEEPSEEK_API_KEY` 只放服务端环境。日志会把连接串和 `sk-` 打成 `[redacted]`。
 
 ## 免费档明确不做的事
@@ -25,7 +29,7 @@
 
 ## 还没发生的事
 
-- 没有把这个服务部署到 Render。
-- 没有 Neon 连接串，也没有导入任何现有数据库。
-- 没有供应商 Key，真实模型请求没有通过。夹具回复以 `fixture-reply:` 开头，不能当成 DeepSeek。
+- 本补丁还没有部署。Render 的自动部署是关的，开通要由父助手设置环境变量后手动部署。
+- 没有管理员时注册不可用。本代理没有收到生产口令，也没有替线上创建账号。
+- 没有供应商 Key 时，真实模型请求没有通过。夹具回复以 `fixture-reply:` 开头，不能当成 DeepSeek。
 - 没有在手机或模拟器上安装运行。
