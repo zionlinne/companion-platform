@@ -1,7 +1,6 @@
-import type { DatabaseSync } from 'node:sqlite'
 import type { AppConfig } from './config.ts'
 import { gatewayConfigured } from './config.ts'
-import { many, one, run, withTx } from './db.ts'
+import { many, one, run, withTx, type SqlDb } from './db.ts'
 import { streamCompletion } from './gateway.ts'
 import { newId, nowIso } from './http.ts'
 import type { Logger } from './log.ts'
@@ -40,12 +39,12 @@ const grantedFields = (row: Candidate) => {
 }
 
 export async function tickInitiative(
-  deps: { db: DatabaseSync; config: AppConfig; log: Logger },
+  deps: { db: SqlDb; config: AppConfig; log: Logger },
   userId: string,
   now = new Date()
 ) {
   const { db, config, log } = deps
-  const settings = one<InitiativeSettingsRow>(db, `SELECT * FROM initiative_settings WHERE user_id = ?`, userId)
+  const settings = await one<InitiativeSettingsRow>(db, `SELECT * FROM initiative_settings WHERE user_id = ?`, userId)
   if (!settings || settings.enabled !== 1) return { status: 'skipped', reason: 'disabled' }
   if (settings.trigger_authorized_timeline !== 1) return { status: 'skipped', reason: 'trigger_disabled' }
   if (inQuietHours(now, settings.quiet_start_minute, settings.quiet_end_minute)) {
@@ -56,7 +55,7 @@ export async function tickInitiative(
   }
   const dayStart = new Date(now)
   dayStart.setUTCHours(0, 0, 0, 0)
-  const used = one<{ count: number }>(
+  const used = await one<{ count: number }>(
     db,
     `SELECT count(*) AS count FROM initiative_runs
      WHERE user_id = ? AND created_at >= ? AND status IN ('started', 'sent', 'error')`,
@@ -65,7 +64,7 @@ export async function tickInitiative(
   )
   if ((used?.count ?? 0) >= settings.daily_limit) return { status: 'skipped', reason: 'daily_limit' }
   const cap = Math.min(Math.max(settings.max_model_calls_per_tick, 1), 3)
-  const candidates = many<Candidate>(
+  const candidates = await many<Candidate>(
     db,
     `SELECT g.*, e.title, e.summary, e.occurred_at, e.due_at,
             c.name, c.identity, c.background, c.traits, c.style, c.habits, c.relationship, c.rules
@@ -81,17 +80,17 @@ export async function tickInitiative(
   for (const candidate of candidates) {
     if (calls >= cap) break
     const key = `timeline:${candidate.event_id}:${candidate.character_id}`
-    const existing = one<{ id: string }>(db, `SELECT id FROM initiative_runs WHERE idempotency_key = ?`, key)
+    const existing = await one<{ id: string }>(db, `SELECT id FROM initiative_runs WHERE idempotency_key = ?`, key)
     if (existing) continue
     const fields = grantedFields(candidate)
     if (!Object.keys(fields).length) continue
     const runId = newId()
     const at = nowIso()
     try {
-      withTx(db, () => {
-        const again = one<{ id: string }>(db, `SELECT id FROM initiative_runs WHERE idempotency_key = ?`, key)
+      await withTx(db, async () => {
+        const again = await one<{ id: string }>(db, `SELECT id FROM initiative_runs WHERE idempotency_key = ?`, key)
         if (again) throw new Error('duplicate')
-        run(
+        await run(
           db,
           `INSERT INTO initiative_runs (id, user_id, idempotency_key, trigger_type, event_id, character_id, status, conversation_id, message_id, created_at)
            VALUES (?, ?, ?, 'authorized_timeline', ?, ?, 'started', NULL, NULL, ?)`,
@@ -107,7 +106,7 @@ export async function tickInitiative(
       continue
     }
     calls += 1
-    run(
+    await run(
       db,
       `INSERT INTO access_audits (id, user_id, actor, grant_id, event_id, character_id, fields_json, created_at)
        VALUES (?, ?, 'initiative', ?, ?, ?, ?, ?)`,
@@ -148,8 +147,8 @@ export async function tickInitiative(
         .join('\n')
       const cost = costMicroUsd('deepseek-flash', result.promptTokens, result.completionTokens, config.prices, result.source)
       const doneAt = nowIso()
-      withTx(db, () => {
-        run(
+      await withTx(db, async () => {
+        await run(
           db,
           `INSERT INTO conversations (id, user_id, space, character_id, title, model, active_message_id, created_at, updated_at)
            VALUES (?, ?, 'companion', ?, '主动消息', 'deepseek-flash', ?, ?, ?)`,
@@ -160,7 +159,7 @@ export async function tickInitiative(
           doneAt,
           doneAt
         )
-        run(
+        await run(
           db,
           `INSERT INTO messages (id, user_id, conversation_id, parent_id, role, content, reasoning, status, created_at, updated_at)
            VALUES (?, ?, ?, NULL, 'user', ?, NULL, 'complete', ?, ?)`,
@@ -171,7 +170,7 @@ export async function tickInitiative(
           doneAt,
           doneAt
         )
-        run(
+        await run(
           db,
           `INSERT INTO messages (id, user_id, conversation_id, parent_id, role, content, reasoning, status, created_at, updated_at)
            VALUES (?, ?, ?, ?, 'assistant', ?, NULL, 'complete', ?, ?)`,
@@ -183,7 +182,7 @@ export async function tickInitiative(
           doneAt,
           doneAt
         )
-        run(
+        await run(
           db,
           `INSERT INTO notifications (id, user_id, kind, title, body, conversation_id, read_at, created_at)
            VALUES (?, ?, 'initiative', '主动消息', ?, ?, NULL, ?)`,
@@ -193,7 +192,7 @@ export async function tickInitiative(
           conversationId,
           doneAt
         )
-        run(
+        await run(
           db,
           `INSERT INTO usage_ledger (id, user_id, conversation_id, model, prompt_tokens, completion_tokens, cost_micro_usd, cost_status, source, created_at)
            VALUES (?, ?, ?, 'deepseek-flash', ?, ?, ?, ?, ?, ?)`,
@@ -207,7 +206,7 @@ export async function tickInitiative(
           result.source,
           doneAt
         )
-        run(
+        await run(
           db,
           `UPDATE initiative_runs SET status = 'sent', conversation_id = ?, message_id = ? WHERE id = ?`,
           conversationId,
@@ -217,7 +216,7 @@ export async function tickInitiative(
       })
       results.push({ status: 'sent', eventId: candidate.event_id, messageId: assistantId })
     } catch (error) {
-      run(db, `UPDATE initiative_runs SET status = 'error' WHERE id = ?`, runId)
+      await run(db, `UPDATE initiative_runs SET status = 'error' WHERE id = ?`, runId)
       log.error('initiative_failed', { code: error instanceof Error ? error.name : 'error' })
       results.push({ status: 'error', eventId: candidate.event_id, reason: 'provider_error' })
     }
@@ -226,18 +225,20 @@ export async function tickInitiative(
   return { status: 'ok', calls, results }
 }
 
-export function defaultInitiative(db: DatabaseSync, userId: string) {
-  const existing = one<InitiativeSettingsRow>(db, `SELECT * FROM initiative_settings WHERE user_id = ?`, userId)
+export async function defaultInitiative(db: SqlDb, userId: string) {
+  const existing = await one<InitiativeSettingsRow>(db, `SELECT * FROM initiative_settings WHERE user_id = ?`, userId)
   if (existing) return existing
   const at = nowIso()
-  run(
+  await run(
     db,
     `INSERT INTO initiative_settings (user_id, enabled, quiet_start_minute, quiet_end_minute, daily_limit, max_model_calls_per_tick, trigger_authorized_timeline, updated_at)
      VALUES (?, 0, NULL, NULL, 3, 1, 1, ?)`,
     userId,
     at
   )
-  return one<InitiativeSettingsRow>(db, `SELECT * FROM initiative_settings WHERE user_id = ?`, userId)!
+  const created = await one<InitiativeSettingsRow>(db, `SELECT * FROM initiative_settings WHERE user_id = ?`, userId)
+  if (!created) throw new Error('initiative settings were not saved')
+  return created
 }
 
 export function publicSettings(row: InitiativeSettingsRow) {

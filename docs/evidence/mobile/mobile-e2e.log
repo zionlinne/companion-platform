@@ -1,0 +1,5 @@
+
+> e2e:mobile
+> node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/mobile.ts
+
+mobile e2e ok

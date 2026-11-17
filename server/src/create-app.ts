@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
 import { authenticate, createInvitations, createSession, listInvitations, registerUser, revokeToken, userFromToken } from './auth.ts'
 import {
   assertQuota,
@@ -14,7 +13,7 @@ import {
 } from './chat-service.ts'
 import { gatewayConfigured, isKnownModel, MODELS, type AppConfig, DEFAULT_MODEL } from './config.ts'
 import { describeUpstream } from './upstream-request.ts'
-import { many, one, run, withTx } from './db.ts'
+import { many, one, run, withTx, type SqlDb } from './db.ts'
 import { streamCompletion } from './gateway.ts'
 import {
   asBool,
@@ -56,13 +55,14 @@ import type {
 const CATEGORIES = new Set<MemoryCategory>(['persona', 'fact', 'event', 'relationship'])
 const COMPANION_LIMIT = 5
 
-function companionCount(db: Ctx['db'], userId: string): number {
-  const row = one<{ n: number }>(db, `SELECT COUNT(*) AS n FROM characters WHERE user_id = ?`, userId)
+async function companionCount(db: Ctx['db'], userId: string): Promise<number> {
+  const row = await one<{ n: number }>(db, `SELECT COUNT(*) AS n FROM characters WHERE user_id = ?`, userId)
   return Number(row?.n ?? 0)
 }
 
-function reserveCompanionSlot(db: Ctx['db'], userId: string): void {
-  if (companionCount(db, userId) >= COMPANION_LIMIT) {
+async function reserveCompanionSlot(db: Ctx['db'], userId: string): Promise<void> {
+  if (db.kind === 'postgres') await one(db, `SELECT id FROM users WHERE id = ? FOR UPDATE`, userId)
+  if (await companionCount(db, userId) >= COMPANION_LIMIT) {
     throw new HttpError(409, 'companion_limit', '每个账号最多 5 个 Companion。删除一个后才能再创建、复制或导入。')
   }
 }
@@ -82,8 +82,8 @@ function markLoginFailure(ip: string) {
   loginFailures.set(ip, recent)
 }
 
-function ownCharacter(ctx: Ctx, id: string): CharacterRow {
-  const row = one<CharacterRow>(ctx.db, `SELECT * FROM characters WHERE id = ? AND user_id = ?`, id, ctx.user!.id)
+async function ownCharacter(ctx: Ctx, id: string): Promise<CharacterRow> {
+  const row = await one<CharacterRow>(ctx.db, `SELECT * FROM characters WHERE id = ? AND user_id = ?`, id, ctx.user!.id)
   if (!row) throw new HttpError(404, 'not_found', 'Not found')
   return row
 }
@@ -133,24 +133,26 @@ function categoryOf(value: unknown): MemoryCategory {
   return value as MemoryCategory
 }
 
-function deleteConversation(ctx: Ctx, conversation: ConversationRow) {
-  const attachments = many<AttachmentRow>(
+async function deleteConversation(ctx: Ctx, conversation: ConversationRow) {
+  const attachments = await many<AttachmentRow>(
     ctx.db,
     `SELECT * FROM attachments WHERE conversation_id = ? AND user_id = ?`,
     conversation.id,
     ctx.user!.id
   )
-  for (const attachment of attachments) {
-    fs.rmSync(blobPath(ctx, attachment.storage_name), { force: true })
+  if (ctx.config.uploads !== 'disabled') {
+    for (const attachment of attachments) {
+      fs.rmSync(blobPath(ctx, attachment.storage_name), { force: true })
+    }
   }
-  run(ctx.db, `DELETE FROM attachments WHERE conversation_id = ? AND user_id = ?`, conversation.id, ctx.user!.id)
-  run(ctx.db, `DELETE FROM messages WHERE conversation_id = ? AND user_id = ?`, conversation.id, ctx.user!.id)
-  run(ctx.db, `DELETE FROM conversations WHERE id = ? AND user_id = ?`, conversation.id, ctx.user!.id)
+  await run(ctx.db, `DELETE FROM attachments WHERE conversation_id = ? AND user_id = ?`, conversation.id, ctx.user!.id)
+  await run(ctx.db, `DELETE FROM messages WHERE conversation_id = ? AND user_id = ?`, conversation.id, ctx.user!.id)
+  await run(ctx.db, `DELETE FROM conversations WHERE id = ? AND user_id = ?`, conversation.id, ctx.user!.id)
 }
 
-function assertParent(ctx: Ctx, conversationId: string, parentId: string | null) {
+async function assertParent(ctx: Ctx, conversationId: string, parentId: string | null) {
   if (!parentId) return
-  const parent = one<MessageRow>(
+  const parent = await one<MessageRow>(
     ctx.db,
     `SELECT * FROM messages WHERE id = ? AND conversation_id = ? AND user_id = ?`,
     parentId,
@@ -178,13 +180,16 @@ async function beginReply(
       'Server model provider key is not configured. Chat is unavailable until an administrator sets DEEPSEEK_API_KEY. This server does not invent model replies.'
     )
   }
-  assertQuota(ctx)
+  await assertQuota(ctx)
+  if (input.attachmentIds.length > 0 && ctx.config.uploads === 'disabled') {
+    throw new HttpError(503, 'uploads_disabled', '免费托管还没有持久对象存储，附件和摘录都不可用。')
+  }
   const model = input.model || conversation.model
   assertModel(model)
-  assertParent(ctx, conversation.id, input.parentId)
+  await assertParent(ctx, conversation.id, input.parentId)
   const attachments: AttachmentRow[] = []
   for (const attachmentId of input.attachmentIds) {
-    const row = one<AttachmentRow>(ctx.db, `SELECT * FROM attachments WHERE id = ? AND user_id = ?`, attachmentId, ctx.user!.id)
+    const row = await one<AttachmentRow>(ctx.db, `SELECT * FROM attachments WHERE id = ? AND user_id = ?`, attachmentId, ctx.user!.id)
     if (!row) throw new HttpError(404, 'not_found', 'Not found')
     if (row.space !== conversation.space) {
       throw new HttpError(403, 'attachment_space_mismatch', 'Attachment belongs to a different space')
@@ -194,7 +199,7 @@ async function beginReply(
   }
   const at = nowIso()
   const messageId = newId()
-  run(
+  await run(
     ctx.db,
     `INSERT INTO messages (id, user_id, conversation_id, parent_id, role, content, reasoning, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'user', ?, NULL, 'complete', ?, ?)`,
@@ -207,7 +212,7 @@ async function beginReply(
     at
   )
   for (const attachment of attachments) {
-    run(
+    await run(
       ctx.db,
       `UPDATE attachments SET message_id = ?, conversation_id = ? WHERE id = ? AND user_id = ?`,
       messageId,
@@ -217,7 +222,7 @@ async function beginReply(
     )
   }
   if (conversation.title === '新对话' || conversation.title === '新的工作记录') {
-    run(
+    await run(
       ctx.db,
       `UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`,
       input.content.slice(0, 40) || conversation.title,
@@ -225,7 +230,7 @@ async function beginReply(
       conversation.id
     )
   }
-  const history = historyFrom(messagePath(ctx, conversation.id, messageId))
+  const history = historyFrom(await messagePath(ctx, conversation.id, messageId))
   await streamAssistant(ctx, conversation, {
     parentId: messageId,
     history,
@@ -263,29 +268,31 @@ function parseSingleFile(body: Buffer, contentType: string) {
   throw new HttpError(400, 'invalid_multipart', 'File field is required')
 }
 
-function deleteUserData(ctx: Ctx, userId: string) {
-  const attachments = many<AttachmentRow>(ctx.db, `SELECT * FROM attachments WHERE user_id = ?`, userId)
-  for (const attachment of attachments) fs.rmSync(blobPath(ctx, attachment.storage_name), { force: true })
-  run(ctx.db, `DELETE FROM access_audits WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM timeline_grants WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM notifications WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM initiative_runs WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM initiative_settings WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM usage_ledger WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM feedback WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM memory_previews WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM attachments WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM messages WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM conversations WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM memories WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM tasks WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM projects WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM timeline_events WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM characters WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM invitation_redemptions WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM sessions WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM quotas WHERE user_id = ?`, userId)
-  run(ctx.db, `DELETE FROM users WHERE id = ?`, userId)
+async function deleteUserData(ctx: Ctx, userId: string) {
+  const attachments = await many<AttachmentRow>(ctx.db, `SELECT * FROM attachments WHERE user_id = ?`, userId)
+  if (ctx.config.uploads !== 'disabled') {
+    for (const attachment of attachments) fs.rmSync(blobPath(ctx, attachment.storage_name), { force: true })
+  }
+  await run(ctx.db, `DELETE FROM access_audits WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM timeline_grants WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM notifications WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM initiative_runs WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM initiative_settings WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM usage_ledger WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM feedback WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM memory_previews WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM attachments WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM messages WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM conversations WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM memories WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM tasks WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM projects WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM timeline_events WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM characters WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM invitation_redemptions WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM sessions WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM quotas WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM users WHERE id = ?`, userId)
 }
 
 function serveStatic(config: AppConfig, res: ServerResponse, pathname: string): boolean {
@@ -321,7 +328,7 @@ function serveStatic(config: AppConfig, res: ServerResponse, pathname: string): 
   return true
 }
 
-export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logger }) {
+export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
   const routes: Route[] = []
   const add = (method: string, pathname: string, handler: Route['handler']) => routes.push(route(method, pathname, handler))
 
@@ -342,6 +349,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
           : gatewayConfigured(ctx.config)
             ? 'Server gateway is configured. The browser does not receive the provider key.'
             : 'Server provider key is not configured. Chat will fail closed.',
+      uploads: ctx.config.uploads,
+      scheduler: 'manual',
       upstream:
         ctx.config.gatewayMode === 'live'
           ? describeUpstream({
@@ -371,7 +380,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       invitationCode: String(body.invitationCode ?? ''),
       displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
     })
-    const token = createSession(ctx.db, ctx.config, user.id)
+    const token = await createSession(ctx.db, ctx.config, user.id)
     setSessionCookie(ctx.res, token, ctx.config)
     ctx.log.info('registered', { userId: user.id })
     json(ctx.res, 201, { user: publicUser(user) })
@@ -389,14 +398,14 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       ctx.log.info('login_failed', { email })
       throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect')
     }
-    const token = createSession(ctx.db, ctx.config, user.id)
+    const token = await createSession(ctx.db, ctx.config, user.id)
     setSessionCookie(ctx.res, token, ctx.config)
     ctx.log.info('login', { userId: user.id })
     json(ctx.res, 200, { user: publicUser(user) })
   })
 
   add('POST', '/api/logout', async (ctx) => {
-    revokeToken(ctx.db, cookies(ctx.req).cp_session)
+    await revokeToken(ctx.db, cookies(ctx.req).cp_session)
     clearSessionCookie(ctx.res, ctx.config)
     json(ctx.res, 200, { ok: true })
   })
@@ -410,8 +419,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const body = await readJson(ctx.req)
     const displayName = asString(body.displayName, 'displayName', 1, 80)
     const at = nowIso()
-    run(ctx.db, `UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`, displayName, at, user.id)
-    const next = one<typeof user>(ctx.db, `SELECT * FROM users WHERE id = ?`, user.id)!
+    await run(ctx.db, `UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`, displayName, at, user.id)
+    const next = (await one<typeof user>(ctx.db, `SELECT * FROM users WHERE id = ?`, user.id))!
     json(ctx.res, 200, { user: publicUser(next) })
   })
 
@@ -420,7 +429,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const body = await readJson(ctx.req)
     const count = Number(body.count ?? 1)
     const maxUses = Number(body.maxUses ?? 1)
-    const created = createInvitations(ctx.db, admin.id, count, maxUses, typeof body.note === 'string' ? body.note.slice(0, 200) : null)
+    const created = await createInvitations(ctx.db, admin.id, count, maxUses, typeof body.note === 'string' ? body.note.slice(0, 200) : null)
     ctx.log.info('invitations_created', { adminId: admin.id, count: created.length })
     json(ctx.res, 201, {
       invitations: created,
@@ -430,12 +439,12 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/admin/invitations', async (ctx) => {
     const admin = requireAdmin(ctx)
-    json(ctx.res, 200, { invitations: listInvitations(ctx.db, admin.id) })
+    json(ctx.res, 200, { invitations: await listInvitations(ctx.db, admin.id) })
   })
 
   add('POST', '/api/admin/invitations/:id/revoke', async (ctx) => {
     const admin = requireAdmin(ctx)
-    const changed = run(
+    const changed = await run(
       ctx.db,
       `UPDATE invitations SET revoked_at = ? WHERE id = ? AND created_by = ? AND revoked_at IS NULL`,
       nowIso(),
@@ -449,9 +458,9 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
   add('GET', '/api/admin/stats', async (ctx) => {
     requireAdmin(ctx)
     const week = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
-    const users = one<{ count: number }>(ctx.db, `SELECT count(*) AS count FROM users WHERE deleted_at IS NULL`)
-    const active = one<{ count: number }>(ctx.db, `SELECT count(*) AS count FROM users WHERE last_seen_at >= ?`, week)
-    const usage = one<{
+    const users = await one<{ count: number }>(ctx.db, `SELECT count(*) AS count FROM users WHERE deleted_at IS NULL`)
+    const active = await one<{ count: number }>(ctx.db, `SELECT count(*) AS count FROM users WHERE last_seen_at >= ?`, week)
+    const usage = await one<{
       prompt: number | null
       completion: number | null
       calculated: number | null
@@ -468,7 +477,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
               coalesce(sum(CASE WHEN cost_status = 'calculated' THEN 1 ELSE 0 END), 0) AS calculated_rows
        FROM usage_ledger`
     )
-    const byUser = many<{ user_id: string; email: string; prompt: number; completion: number }>(
+    const byUser = await many<{ user_id: string; email: string; prompt: number; completion: number }>(
       ctx.db,
       `SELECT u.id AS user_id, u.email AS email,
               coalesce(sum(l.prompt_tokens), 0) AS prompt,
@@ -493,7 +502,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/admin/users', async (ctx) => {
     requireAdmin(ctx)
-    const rows = many<{ id: string; email: string; display_name: string; role: string; created_at: string; last_seen_at: string | null }>(
+    const rows = await many<{ id: string; email: string; display_name: string; role: string; created_at: string; last_seen_at: string | null }>(
       ctx.db,
       `SELECT id, email, display_name, role, created_at, last_seen_at FROM users WHERE deleted_at IS NULL ORDER BY created_at`
     )
@@ -520,7 +529,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     if (!Number.isInteger(tokens) || tokens < 1 || tokens > 100_000_000) {
       throw new HttpError(400, 'invalid_field', 'dailyTokenLimit is invalid')
     }
-    const changed = run(
+    const changed = await run(
       ctx.db,
       `UPDATE quotas SET daily_request_limit = ?, daily_token_limit = ?, updated_at = ? WHERE user_id = ?`,
       requests,
@@ -534,7 +543,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/characters', async (ctx) => {
     const user = requireUser(ctx)
-    const rows = many<CharacterRow>(ctx.db, `SELECT * FROM characters WHERE user_id = ? ORDER BY updated_at DESC`, user.id)
+    const rows = await many<CharacterRow>(ctx.db, `SELECT * FROM characters WHERE user_id = ? ORDER BY updated_at DESC`, user.id)
     json(ctx.res, 200, { characters: rows.map(characterJson), used: rows.length, limit: COMPANION_LIMIT })
   })
 
@@ -561,9 +570,9 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       created_at: at,
       updated_at: at,
     }
-    withTx(ctx.db, () => {
-      reserveCompanionSlot(ctx.db, user.id)
-      run(
+    await withTx(ctx.db, async () => {
+      await reserveCompanionSlot(ctx.db, user.id)
+      await run(
         ctx.db,
         `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -589,12 +598,12 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/characters/:id', async (ctx) => {
     requireUser(ctx)
-    json(ctx.res, 200, { character: characterJson(ownCharacter(ctx, ctx.params.id)) })
+    json(ctx.res, 200, { character: characterJson(await ownCharacter(ctx, ctx.params.id)) })
   })
 
   add('PATCH', '/api/characters/:id', async (ctx) => {
     const user = requireUser(ctx)
-    const current = ownCharacter(ctx, ctx.params.id)
+    const current = await ownCharacter(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
     const model = typeof body.defaultModel === 'string' ? body.defaultModel : current.default_model
     assertModel(model)
@@ -611,7 +620,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       rules: body.rules === undefined ? current.rules : asOptionalString(body.rules, 'rules', 4000),
       initiative_enabled: body.initiativeEnabled === undefined ? current.initiative_enabled : asBool(body.initiativeEnabled) ? 1 : 0,
     }
-    run(
+    await run(
       ctx.db,
       `UPDATE characters SET name=?, avatar_text=?, identity=?, background=?, traits=?, style=?, habits=?, relationship=?, rules=?, default_model=?, initiative_enabled=?, updated_at=?
        WHERE id=? AND user_id=?`,
@@ -630,34 +639,34 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       current.id,
       user.id
     )
-    json(ctx.res, 200, { character: characterJson(ownCharacter(ctx, current.id)) })
+    json(ctx.res, 200, { character: characterJson(await ownCharacter(ctx, current.id)) })
   })
 
   add('DELETE', '/api/characters/:id', async (ctx) => {
     const user = requireUser(ctx)
-    const character = ownCharacter(ctx, ctx.params.id)
-    const conversations = many<ConversationRow>(
+    const character = await ownCharacter(ctx, ctx.params.id)
+    const conversations = await many<ConversationRow>(
       ctx.db,
       `SELECT * FROM conversations WHERE character_id = ? AND user_id = ?`,
       character.id,
       user.id
     )
-    for (const conversation of conversations) deleteConversation(ctx, conversation)
-    run(ctx.db, `DELETE FROM timeline_grants WHERE character_id = ? AND user_id = ?`, character.id, user.id)
-    run(ctx.db, `DELETE FROM memories WHERE character_id = ? AND user_id = ?`, character.id, user.id)
-    run(ctx.db, `DELETE FROM characters WHERE id = ? AND user_id = ?`, character.id, user.id)
+    for (const conversation of conversations) await deleteConversation(ctx, conversation)
+    await run(ctx.db, `DELETE FROM timeline_grants WHERE character_id = ? AND user_id = ?`, character.id, user.id)
+    await run(ctx.db, `DELETE FROM memories WHERE character_id = ? AND user_id = ?`, character.id, user.id)
+    await run(ctx.db, `DELETE FROM characters WHERE id = ? AND user_id = ?`, character.id, user.id)
     json(ctx.res, 200, { ok: true })
   })
 
   add('POST', '/api/characters/:id/copy', async (ctx) => {
     const user = requireUser(ctx)
-    const source = ownCharacter(ctx, ctx.params.id)
+    const source = await ownCharacter(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
     const at = nowIso()
     const copy: CharacterRow = { ...source, id: newId(), name: `${source.name} 副本`.slice(0, 80), created_at: at, updated_at: at }
-    withTx(ctx.db, () => {
-      reserveCompanionSlot(ctx.db, user.id)
-      run(
+    await withTx(ctx.db, async () => {
+      await reserveCompanionSlot(ctx.db, user.id)
+      await run(
         ctx.db,
         `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -678,14 +687,14 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
         at
       )
       if (asBool(body.copyMemories, false)) {
-        const memories = many<MemoryRow>(
+        const memories = await many<MemoryRow>(
           ctx.db,
           `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active'`,
           source.id,
           user.id
         )
         for (const memory of memories) {
-          run(
+          await run(
             ctx.db,
             `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
@@ -716,7 +725,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/characters/:id/export', async (ctx) => {
     requireUser(ctx)
-    const character = ownCharacter(ctx, ctx.params.id)
+    const character = await ownCharacter(ctx, ctx.params.id)
     const card = characterJson(character)
     json(ctx.res, 200, {
       kind: 'companion-platform-character',
@@ -767,9 +776,9 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       created_at: at,
       updated_at: at,
     }
-    withTx(ctx.db, () => {
-      reserveCompanionSlot(ctx.db, user.id)
-      run(
+    await withTx(ctx.db, async () => {
+      await reserveCompanionSlot(ctx.db, user.id)
+      await run(
         ctx.db,
         `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -795,10 +804,10 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/characters/:id/memories', async (ctx) => {
     const user = requireUser(ctx)
-    ownCharacter(ctx, ctx.params.id)
+    await ownCharacter(ctx, ctx.params.id)
     const status = ctx.url.searchParams.get('status') ?? 'active'
     if (!['active', 'suggested', 'rejected'].includes(status)) throw new HttpError(400, 'invalid_field', 'Invalid status')
-    const rows = many<MemoryRow>(
+    const rows = await many<MemoryRow>(
       ctx.db,
       `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = ? ORDER BY updated_at DESC`,
       ctx.params.id,
@@ -810,8 +819,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/characters/:id/memories/export', async (ctx) => {
     const user = requireUser(ctx)
-    ownCharacter(ctx, ctx.params.id)
-    const rows = many<MemoryRow>(
+    await ownCharacter(ctx, ctx.params.id)
+    const rows = await many<MemoryRow>(
       ctx.db,
       `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active' ORDER BY created_at ASC`,
       ctx.params.id,
@@ -830,7 +839,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/characters/:id/memories', async (ctx) => {
     const user = requireUser(ctx)
-    ownCharacter(ctx, ctx.params.id)
+    await ownCharacter(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
     const at = nowIso()
     const row: MemoryRow = {
@@ -846,7 +855,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       created_at: at,
       updated_at: at,
     }
-    run(
+    await run(
       ctx.db,
       `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, '', 'active', ?, ?)`,
@@ -865,14 +874,14 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('PATCH', '/api/memories/:id', async (ctx) => {
     const user = requireUser(ctx)
-    const current = one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    const current = await one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!current) throw new HttpError(404, 'not_found', 'Not found')
     const body = await readJson(ctx.req)
     const at = nowIso()
     const content = body.content === undefined ? current.content : asString(body.content, 'content', 1, 4000)
     const category = body.category === undefined ? current.category : categoryOf(body.category)
     const explicit = body.explicit === undefined ? current.explicit : asBool(body.explicit) ? 1 : 0
-    run(
+    await run(
       ctx.db,
       `UPDATE memories SET content=?, category=?, explicit=?, updated_at=? WHERE id=? AND user_id=?`,
       content,
@@ -882,42 +891,42 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       current.id,
       user.id
     )
-    json(ctx.res, 200, { memory: memoryJson(one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ?`, current.id)!) })
+    json(ctx.res, 200, { memory: memoryJson((await one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ?`, current.id))!) })
   })
 
   add('DELETE', '/api/memories/:id', async (ctx) => {
     const user = requireUser(ctx)
-    const changed = run(ctx.db, `DELETE FROM memories WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    const changed = await run(ctx.db, `DELETE FROM memories WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!changed) throw new HttpError(404, 'not_found', 'Not found')
     json(ctx.res, 200, { ok: true })
   })
 
   add('POST', '/api/memories/:id/confirm', async (ctx) => {
     const user = requireUser(ctx)
-    const current = one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    const current = await one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!current || current.status !== 'suggested') throw new HttpError(404, 'not_found', 'Not found')
     const body = await readJson(ctx.req)
     const explicit = body.explicit === undefined ? 0 : asBool(body.explicit) ? 1 : 0
     const at = nowIso()
-    run(ctx.db, `UPDATE memories SET status='active', explicit=?, updated_at=? WHERE id=?`, explicit, at, current.id)
-    json(ctx.res, 200, { memory: memoryJson(one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ?`, current.id)!) })
+    await run(ctx.db, `UPDATE memories SET status='active', explicit=?, updated_at=? WHERE id=?`, explicit, at, current.id)
+    json(ctx.res, 200, { memory: memoryJson((await one<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE id = ?`, current.id))!) })
   })
 
   add('POST', '/api/characters/:id/memories/suggest', async (ctx) => {
     const user = requireUser(ctx)
-    ownCharacter(ctx, ctx.params.id)
+    await ownCharacter(ctx, ctx.params.id)
     if (!gatewayConfigured(ctx.config)) {
       throw new HttpError(503, 'model_gateway_unconfigured', 'Server model provider key is not configured. No memory was guessed.')
     }
-    assertQuota(ctx)
+    await assertQuota(ctx)
     const body = await readJson(ctx.req)
     let history: Array<{ role: 'user' | 'assistant'; content: string }> = []
     if (typeof body.conversationId === 'string') {
-      const conversation = ownConversation(ctx, body.conversationId)
+      const conversation = await ownConversation(ctx, body.conversationId)
       if (conversation.character_id !== ctx.params.id || conversation.space !== 'companion') {
         throw new HttpError(403, 'forbidden', 'Conversation is not this companion')
       }
-      history = historyFrom(messagePath(ctx, conversation.id, conversation.active_message_id)).slice(-8)
+      history = historyFrom(await messagePath(ctx, conversation.id, conversation.active_message_id)).slice(-8)
     }
     let content = ''
     const result = await streamCompletion(ctx.config, {
@@ -960,7 +969,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
         created_at: at,
         updated_at: at,
       }
-      run(
+      await run(
         ctx.db,
         `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'model-suggestion', 0, ?, 'suggested', ?, ?)`,
@@ -982,7 +991,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       ctx.config.prices,
       result.source
     )
-    run(
+    await run(
       ctx.db,
       `INSERT INTO usage_ledger (id, user_id, conversation_id, model, prompt_tokens, completion_tokens, cost_micro_usd, cost_status, source, created_at)
        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1004,7 +1013,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/characters/:id/memories/import/preview', async (ctx) => {
     const user = requireUser(ctx)
-    ownCharacter(ctx, ctx.params.id)
+    await ownCharacter(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
     const format = asString(body.format, 'format', 2, 20)
     const text = asString(body.text, 'text', 1, 200_000)
@@ -1026,7 +1035,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       const known = messages[code] ? code : 'unrecognized_export'
       throw new HttpError(422, known, messages[known])
     }
-    const existing = many<{ category: string; content: string }>(
+    const existing = await many<{ category: string; content: string }>(
       ctx.db,
       `SELECT category, content FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active'`,
       ctx.params.id,
@@ -1034,7 +1043,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     )
     const split = dedupeImports(items, existing)
     const previewId = newId()
-    run(
+    await run(
       ctx.db,
       `INSERT INTO memory_previews (id, user_id, character_id, items_json, created_at) VALUES (?, ?, ?, ?, ?)`,
       previewId,
@@ -1048,9 +1057,9 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/characters/:id/memories/import/commit', async (ctx) => {
     const user = requireUser(ctx)
-    ownCharacter(ctx, ctx.params.id)
+    await ownCharacter(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
-    const preview = one<{ items_json: string; character_id: string }>(
+    const preview = await one<{ items_json: string; character_id: string }>(
       ctx.db,
       `SELECT items_json, character_id FROM memory_previews WHERE id = ? AND user_id = ?`,
       asString(body.previewId, 'previewId', 8, 80),
@@ -1059,7 +1068,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     if (!preview || preview.character_id !== ctx.params.id) throw new HttpError(404, 'not_found', 'Not found')
     const selected = new Set(Array.isArray(body.tempIds) ? body.tempIds.filter((id) => typeof id === 'string') : [])
     const chosen = (JSON.parse(preview.items_json) as ImportItem[]).filter((item) => selected.has(item.tempId))
-    const existing = many<{ category: string; content: string }>(
+    const existing = await many<{ category: string; content: string }>(
       ctx.db,
       `SELECT category, content FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active'`,
       ctx.params.id,
@@ -1084,7 +1093,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
         created_at: createdAt,
         updated_at: updatedAt,
       }
-      run(
+      await run(
         ctx.db,
         `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
@@ -1101,7 +1110,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       )
       created.push(row)
     }
-    run(ctx.db, `DELETE FROM memory_previews WHERE id = ?`, body.previewId)
+    await run(ctx.db, `DELETE FROM memory_previews WHERE id = ?`, body.previewId)
     json(ctx.res, 201, { memories: created.map(memoryJson) })
   })
 
@@ -1109,7 +1118,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const user = requireUser(ctx)
     const space = ctx.url.searchParams.get('space')
     if (space !== 'workspace' && space !== 'companion') throw new HttpError(400, 'invalid_field', 'space is required')
-    const rows = many<ConversationRow>(
+    const rows = await many<ConversationRow>(
       ctx.db,
       `SELECT * FROM conversations WHERE user_id = ? AND space = ? ORDER BY updated_at DESC`,
       user.id,
@@ -1127,7 +1136,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     let model = typeof body.model === 'string' ? body.model : DEFAULT_MODEL
     if (space === 'companion') {
       if (typeof body.characterId !== 'string') throw new HttpError(400, 'invalid_field', 'characterId is required')
-      const character = ownCharacter(ctx, body.characterId)
+      const character = await ownCharacter(ctx, body.characterId)
       characterId = character.id
       model = typeof body.model === 'string' ? body.model : character.default_model
     }
@@ -1144,7 +1153,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       created_at: at,
       updated_at: at,
     }
-    run(
+    await run(
       ctx.db,
       `INSERT INTO conversations (id, user_id, space, character_id, title, model, active_message_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
@@ -1162,33 +1171,33 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/conversations/:id', async (ctx) => {
     requireUser(ctx)
-    const conversation = ownConversation(ctx, ctx.params.id)
-    json(ctx.res, 200, { conversation: conversationJson(conversation), messages: decorateMessages(ctx, conversation) })
+    const conversation = await ownConversation(ctx, ctx.params.id)
+    json(ctx.res, 200, { conversation: conversationJson(conversation), messages: await decorateMessages(ctx, conversation) })
   })
 
   add('PATCH', '/api/conversations/:id', async (ctx) => {
     const user = requireUser(ctx)
-    const conversation = ownConversation(ctx, ctx.params.id)
+    const conversation = await ownConversation(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
     const title = body.title === undefined ? conversation.title : asString(body.title, 'title', 1, 80)
     const model = body.model === undefined ? conversation.model : asString(body.model, 'model', 1, 80)
     assertModel(model)
-    run(ctx.db, `UPDATE conversations SET title=?, model=?, updated_at=? WHERE id=? AND user_id=?`, title, model, nowIso(), conversation.id, user.id)
-    json(ctx.res, 200, { conversation: conversationJson(ownConversation(ctx, conversation.id)) })
+    await run(ctx.db, `UPDATE conversations SET title=?, model=?, updated_at=? WHERE id=? AND user_id=?`, title, model, nowIso(), conversation.id, user.id)
+    json(ctx.res, 200, { conversation: conversationJson(await ownConversation(ctx, conversation.id)) })
   })
 
   add('DELETE', '/api/conversations/:id', async (ctx) => {
     requireUser(ctx)
-    deleteConversation(ctx, ownConversation(ctx, ctx.params.id))
+    await deleteConversation(ctx, await ownConversation(ctx, ctx.params.id))
     json(ctx.res, 200, { ok: true })
   })
 
   add('POST', '/api/conversations/:id/active', async (ctx) => {
     const user = requireUser(ctx)
-    const conversation = ownConversation(ctx, ctx.params.id)
+    const conversation = await ownConversation(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
     const messageId = asString(body.messageId, 'messageId', 8, 80)
-    const message = one<MessageRow>(
+    const message = await one<MessageRow>(
       ctx.db,
       `SELECT * FROM messages WHERE id = ? AND conversation_id = ? AND user_id = ?`,
       messageId,
@@ -1196,13 +1205,13 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       user.id
     )
     if (!message) throw new HttpError(404, 'not_found', 'Not found')
-    run(ctx.db, `UPDATE conversations SET active_message_id=?, updated_at=? WHERE id=?`, messageId, nowIso(), conversation.id)
-    json(ctx.res, 200, { conversation: conversationJson(ownConversation(ctx, conversation.id)), messages: decorateMessages(ctx, ownConversation(ctx, conversation.id)) })
+    await run(ctx.db, `UPDATE conversations SET active_message_id=?, updated_at=? WHERE id=?`, messageId, nowIso(), conversation.id)
+    json(ctx.res, 200, { conversation: conversationJson(await ownConversation(ctx, conversation.id)), messages: await decorateMessages(ctx, await ownConversation(ctx, conversation.id)) })
   })
 
   add('POST', '/api/conversations/:id/messages', async (ctx) => {
     requireUser(ctx)
-    const conversation = ownConversation(ctx, ctx.params.id)
+    const conversation = await ownConversation(ctx, ctx.params.id)
     const body = await readJson(ctx.req)
     const attachmentIds = Array.isArray(body.attachmentIds) ? body.attachmentIds.filter((id): id is string => typeof id === 'string') : []
     await beginReply(ctx, conversation, {
@@ -1216,8 +1225,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/conversations/:id/messages/:messageId/edit', async (ctx) => {
     const user = requireUser(ctx)
-    const conversation = ownConversation(ctx, ctx.params.id)
-    const original = one<MessageRow>(
+    const conversation = await ownConversation(ctx, ctx.params.id)
+    const original = await one<MessageRow>(
       ctx.db,
       `SELECT * FROM messages WHERE id = ? AND conversation_id = ? AND user_id = ?`,
       ctx.params.messageId,
@@ -1237,8 +1246,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/conversations/:id/messages/:messageId/regenerate', async (ctx) => {
     const user = requireUser(ctx)
-    const conversation = ownConversation(ctx, ctx.params.id)
-    const original = one<MessageRow>(
+    const conversation = await ownConversation(ctx, ctx.params.id)
+    const original = await one<MessageRow>(
       ctx.db,
       `SELECT * FROM messages WHERE id = ? AND conversation_id = ? AND user_id = ?`,
       ctx.params.messageId,
@@ -1250,8 +1259,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     if (!gatewayConfigured(ctx.config)) {
       throw new HttpError(503, 'model_gateway_unconfigured', 'Server model provider key is not configured. No fallback reply was generated.')
     }
-    assertQuota(ctx)
-    const history = historyFrom(messagePath(ctx, conversation.id, original.parent_id))
+    await assertQuota(ctx)
+    const history = historyFrom(await messagePath(ctx, conversation.id, original.parent_id))
     await streamAssistant(ctx, conversation, {
       parentId: original.parent_id,
       history,
@@ -1262,6 +1271,9 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/attachments', async (ctx) => {
     const user = requireUser(ctx)
+    if (ctx.config.uploads === 'disabled') {
+      throw new HttpError(503, 'uploads_disabled', '免费托管还没有持久对象存储，附件和摘录都不可用。')
+    }
     const space = ctx.url.searchParams.get('space')
     if (space !== 'workspace' && space !== 'companion') throw new HttpError(400, 'invalid_field', 'space is required')
     const type = ctx.req.headers['content-type'] ?? ''
@@ -1272,7 +1284,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     fs.mkdirSync(path.dirname(full), { recursive: true })
     fs.writeFileSync(full, file.data)
     const at = nowIso()
-    run(
+    await run(
       ctx.db,
       `INSERT INTO attachments (id, user_id, space, conversation_id, message_id, filename, media_type, byte_size, storage_name, created_at)
        VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
@@ -1290,7 +1302,10 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/attachments/:id', async (ctx) => {
     const user = requireUser(ctx)
-    const row = one<AttachmentRow>(ctx.db, `SELECT * FROM attachments WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    if (ctx.config.uploads === 'disabled') {
+      throw new HttpError(503, 'uploads_disabled', '免费托管还没有持久对象存储，附件和摘录都不可用。')
+    }
+    const row = await one<AttachmentRow>(ctx.db, `SELECT * FROM attachments WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!row) throw new HttpError(404, 'not_found', 'Not found')
     const full = blobPath(ctx, row.storage_name)
     ctx.res.writeHead(200, {
@@ -1307,7 +1322,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const body = await readJson(ctx.req)
     const at = nowIso()
     const id = newId()
-    run(
+    await run(
       ctx.db,
       `INSERT INTO projects (id, user_id, name, summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
       id,
@@ -1322,18 +1337,18 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/workspace/projects', async (ctx) => {
     const user = requireUser(ctx)
-    json(ctx.res, 200, { projects: many(ctx.db, `SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC`, user.id) })
+    json(ctx.res, 200, { projects: await many(ctx.db, `SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC`, user.id) })
   })
 
   add('POST', '/api/workspace/projects/:id/tasks', async (ctx) => {
     const user = requireUser(ctx)
-    const project = one<{ id: string }>(ctx.db, `SELECT id FROM projects WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    const project = await one<{ id: string }>(ctx.db, `SELECT id FROM projects WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!project) throw new HttpError(404, 'not_found', 'Not found')
     const body = await readJson(ctx.req)
     const at = nowIso()
     const id = newId()
     const due = typeof body.dueAt === 'string' ? body.dueAt : null
-    run(
+    await run(
       ctx.db,
       `INSERT INTO tasks (id, user_id, project_id, title, status, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'open', ?, ?, ?)`,
       id,
@@ -1352,7 +1367,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const body = await readJson(ctx.req)
     const status = body.status === 'done' || body.status === 'open' ? body.status : null
     if (!status) throw new HttpError(400, 'invalid_field', 'status must be open or done')
-    const changed = run(ctx.db, `UPDATE tasks SET status=?, updated_at=? WHERE id=? AND user_id=?`, status, nowIso(), ctx.params.id, user.id)
+    const changed = await run(ctx.db, `UPDATE tasks SET status=?, updated_at=? WHERE id=? AND user_id=?`, status, nowIso(), ctx.params.id, user.id)
     if (!changed) throw new HttpError(404, 'not_found', 'Not found')
     json(ctx.res, 200, { ok: true })
   })
@@ -1364,10 +1379,10 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const id = newId()
     const projectId = typeof body.projectId === 'string' ? body.projectId : null
     if (projectId) {
-      const project = one(ctx.db, `SELECT id FROM projects WHERE id = ? AND user_id = ?`, projectId, user.id)
+      const project = await one(ctx.db, `SELECT id FROM projects WHERE id = ? AND user_id = ?`, projectId, user.id)
       if (!project) throw new HttpError(404, 'not_found', 'Not found')
     }
-    run(
+    await run(
       ctx.db,
       `INSERT INTO timeline_events (id, user_id, project_id, title, summary, event_type, occurred_at, due_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1388,16 +1403,16 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
   add('GET', '/api/workspace/timeline', async (ctx) => {
     const user = requireUser(ctx)
     json(ctx.res, 200, {
-      events: many(ctx.db, `SELECT * FROM timeline_events WHERE user_id = ? ORDER BY occurred_at DESC`, user.id),
+      events: await many(ctx.db, `SELECT * FROM timeline_events WHERE user_id = ? ORDER BY occurred_at DESC`, user.id),
     })
   })
 
   add('PATCH', '/api/workspace/timeline/:id', async (ctx) => {
     const user = requireUser(ctx)
-    const current = one<{ id: string }>(ctx.db, `SELECT id FROM timeline_events WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    const current = await one<{ id: string }>(ctx.db, `SELECT id FROM timeline_events WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!current) throw new HttpError(404, 'not_found', 'Not found')
     const body = await readJson(ctx.req)
-    run(
+    await run(
       ctx.db,
       `UPDATE timeline_events SET title=?, summary=?, updated_at=? WHERE id=? AND user_id=?`,
       asString(body.title, 'title', 1, 200),
@@ -1411,18 +1426,18 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('DELETE', '/api/workspace/timeline/:id', async (ctx) => {
     const user = requireUser(ctx)
-    run(ctx.db, `DELETE FROM timeline_grants WHERE event_id = ? AND user_id = ?`, ctx.params.id, user.id)
-    const changed = run(ctx.db, `DELETE FROM timeline_events WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    await run(ctx.db, `DELETE FROM timeline_grants WHERE event_id = ? AND user_id = ?`, ctx.params.id, user.id)
+    const changed = await run(ctx.db, `DELETE FROM timeline_events WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!changed) throw new HttpError(404, 'not_found', 'Not found')
     json(ctx.res, 200, { ok: true })
   })
 
   add('POST', '/api/workspace/timeline/:id/grants', async (ctx) => {
     const user = requireUser(ctx)
-    const event = one(ctx.db, `SELECT id FROM timeline_events WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
+    const event = await one(ctx.db, `SELECT id FROM timeline_events WHERE id = ? AND user_id = ?`, ctx.params.id, user.id)
     if (!event) throw new HttpError(404, 'not_found', 'Not found')
     const body = await readJson(ctx.req)
-    const character = ownCharacter(ctx, asString(body.characterId, 'characterId', 8, 80))
+    const character = await ownCharacter(ctx, asString(body.characterId, 'characterId', 8, 80))
     const allowTitle = asBool(body.allowTitle, false)
     const allowSummary = asBool(body.allowSummary, false)
     const allowOccurred = asBool(body.allowOccurredAt, false)
@@ -1431,7 +1446,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       throw new HttpError(400, 'invalid_field', 'Choose at least one field')
     }
     const id = newId()
-    run(
+    await run(
       ctx.db,
       `INSERT INTO timeline_grants (id, user_id, event_id, character_id, allow_title, allow_summary, allow_occurred_at, allow_due_at, revoked_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
@@ -1450,7 +1465,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('POST', '/api/workspace/grants/:id/revoke', async (ctx) => {
     const user = requireUser(ctx)
-    const changed = run(
+    const changed = await run(
       ctx.db,
       `UPDATE timeline_grants SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
       nowIso(),
@@ -1463,22 +1478,22 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/workspace/grants', async (ctx) => {
     const user = requireUser(ctx)
-    json(ctx.res, 200, { grants: many(ctx.db, `SELECT * FROM timeline_grants WHERE user_id = ? ORDER BY created_at DESC`, user.id) })
+    json(ctx.res, 200, { grants: await many(ctx.db, `SELECT * FROM timeline_grants WHERE user_id = ? ORDER BY created_at DESC`, user.id) })
   })
 
   add('GET', '/api/workspace/audits', async (ctx) => {
     const user = requireUser(ctx)
-    json(ctx.res, 200, { audits: many(ctx.db, `SELECT * FROM access_audits WHERE user_id = ? ORDER BY created_at DESC`, user.id) })
+    json(ctx.res, 200, { audits: await many(ctx.db, `SELECT * FROM access_audits WHERE user_id = ? ORDER BY created_at DESC`, user.id) })
   })
 
   add('POST', '/api/companion/timeline-reads', async (ctx) => {
     const user = requireUser(ctx)
     const body = await readJson(ctx.req)
-    const character = ownCharacter(ctx, asString(body.characterId, 'characterId', 8, 80))
+    const character = await ownCharacter(ctx, asString(body.characterId, 'characterId', 8, 80))
     const eventId = asString(body.eventId, 'eventId', 8, 80)
-    const before = one<{ updated_at: string }>(ctx.db, `SELECT updated_at FROM timeline_events WHERE id = ? AND user_id = ?`, eventId, user.id)
+    const before = await one<{ updated_at: string }>(ctx.db, `SELECT updated_at FROM timeline_events WHERE id = ? AND user_id = ?`, eventId, user.id)
     if (!before) throw new HttpError(404, 'not_found', 'Not found')
-    const grant = one<{
+    const grant = await one<{
       id: string
       allow_title: number
       allow_summary: number
@@ -1492,12 +1507,13 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       character.id
     )
     if (!grant) throw new HttpError(403, 'timeline_not_authorized', 'Companion cannot read this workspace event')
-    const event = one<{ title: string; summary: string; occurred_at: string; due_at: string | null }>(
+    const event = await one<{ title: string; summary: string; occurred_at: string; due_at: string | null }>(
       ctx.db,
       `SELECT title, summary, occurred_at, due_at FROM timeline_events WHERE id = ? AND user_id = ?`,
       eventId,
       user.id
-    )!
+    )
+    if (!event) throw new HttpError(404, 'not_found', 'Not found')
     const fields: Record<string, string | null> = {}
     const names: string[] = []
     if (grant.allow_title) {
@@ -1516,7 +1532,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       fields.dueAt = event.due_at
       names.push('dueAt')
     }
-    run(
+    await run(
       ctx.db,
       `INSERT INTO access_audits (id, user_id, actor, grant_id, event_id, character_id, fields_json, created_at)
        VALUES (?, ?, 'companion_read', ?, ?, ?, ?, ?)`,
@@ -1528,7 +1544,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       JSON.stringify(names),
       nowIso()
     )
-    const after = one<{ updated_at: string }>(ctx.db, `SELECT updated_at FROM timeline_events WHERE id = ?`, eventId)
+    const after = await one<{ updated_at: string }>(ctx.db, `SELECT updated_at FROM timeline_events WHERE id = ?`, eventId)
     json(ctx.res, 200, { fields, readOnly: true, eventUnchanged: before.updated_at === after?.updated_at })
   })
 
@@ -1538,12 +1554,12 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/initiative', async (ctx) => {
     const user = requireUser(ctx)
-    json(ctx.res, 200, { settings: publicSettings(defaultInitiative(ctx.db, user.id)) })
+    json(ctx.res, 200, { settings: publicSettings(await defaultInitiative(ctx.db, user.id)) })
   })
 
   add('PATCH', '/api/initiative', async (ctx) => {
     const user = requireUser(ctx)
-    const current = defaultInitiative(ctx.db, user.id)
+    const current = await defaultInitiative(ctx.db, user.id)
     const body = await readJson(ctx.req)
     const triggers = body.triggers as Record<string, { enabled?: boolean }> | undefined
     for (const name of ['schedule', 'work_event', 'history_followup', 'date_reminder']) {
@@ -1557,7 +1573,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const quietStart = minuteField(body.quietStartMinute, current.quiet_start_minute)
     const quietEnd = minuteField(body.quietEndMinute, current.quiet_end_minute)
     const trigger = triggers?.authorized_timeline?.enabled === undefined ? current.trigger_authorized_timeline : triggers.authorized_timeline.enabled ? 1 : 0
-    run(
+    await run(
       ctx.db,
       `UPDATE initiative_settings SET enabled=?, quiet_start_minute=?, quiet_end_minute=?, daily_limit=?, max_model_calls_per_tick=?, trigger_authorized_timeline=?, updated_at=? WHERE user_id=?`,
       enabled,
@@ -1569,7 +1585,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       nowIso(),
       user.id
     )
-    json(ctx.res, 200, { settings: publicSettings(defaultInitiative(ctx.db, user.id)) })
+    json(ctx.res, 200, { settings: publicSettings(await defaultInitiative(ctx.db, user.id)) })
   })
 
   add('POST', '/api/initiative/tick', async (ctx) => {
@@ -1588,12 +1604,12 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
 
   add('GET', '/api/notifications', async (ctx) => {
     const user = requireUser(ctx)
-    json(ctx.res, 200, { notifications: many(ctx.db, `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC`, user.id) })
+    json(ctx.res, 200, { notifications: await many(ctx.db, `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC`, user.id) })
   })
 
   add('POST', '/api/notifications/:id/read', async (ctx) => {
     const user = requireUser(ctx)
-    const changed = run(ctx.db, `UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?`, nowIso(), ctx.params.id, user.id)
+    const changed = await run(ctx.db, `UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?`, nowIso(), ctx.params.id, user.id)
     if (!changed) throw new HttpError(404, 'not_found', 'Not found')
     json(ctx.res, 200, { ok: true })
   })
@@ -1602,13 +1618,13 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const user = requireUser(ctx)
     const body = await readJson(ctx.req)
     const id = newId()
-    run(ctx.db, `INSERT INTO feedback (id, user_id, body, created_at) VALUES (?, ?, ?, ?)`, id, user.id, asString(body.body, 'body', 1, 4000), nowIso())
+    await run(ctx.db, `INSERT INTO feedback (id, user_id, body, created_at) VALUES (?, ?, ?, ?)`, id, user.id, asString(body.body, 'body', 1, 4000), nowIso())
     json(ctx.res, 201, { id })
   })
 
   add('GET', '/api/admin/feedback', async (ctx) => {
     requireAdmin(ctx)
-    json(ctx.res, 200, { feedback: many(ctx.db, `SELECT id, user_id, body, created_at FROM feedback ORDER BY created_at DESC`) })
+    json(ctx.res, 200, { feedback: await many(ctx.db, `SELECT id, user_id, body, created_at FROM feedback ORDER BY created_at DESC`) })
   })
 
   add('GET', '/api/me/export', async (ctx) => {
@@ -1616,15 +1632,15 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     json(ctx.res, 200, {
       exportedAt: nowIso(),
       user: publicUser(user),
-      characters: many(ctx.db, `SELECT * FROM characters WHERE user_id = ?`, user.id).map((row) => characterJson(row as CharacterRow)),
-      memories: many<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE user_id = ?`, user.id).map(memoryJson),
-      conversations: many<ConversationRow>(ctx.db, `SELECT * FROM conversations WHERE user_id = ?`, user.id).map(conversationJson),
-      messages: many(ctx.db, `SELECT id, conversation_id, parent_id, role, content, reasoning, status, created_at, updated_at FROM messages WHERE user_id = ?`, user.id),
-      timeline: many(ctx.db, `SELECT * FROM timeline_events WHERE user_id = ?`, user.id),
-      grants: many(ctx.db, `SELECT * FROM timeline_grants WHERE user_id = ?`, user.id),
-      notifications: many(ctx.db, `SELECT * FROM notifications WHERE user_id = ?`, user.id),
-      projects: many(ctx.db, `SELECT * FROM projects WHERE user_id = ?`, user.id),
-      tasks: many(ctx.db, `SELECT * FROM tasks WHERE user_id = ?`, user.id),
+      characters: (await many<CharacterRow>(ctx.db, `SELECT * FROM characters WHERE user_id = ?`, user.id)).map((row) => characterJson(row)),
+      memories: (await many<MemoryRow>(ctx.db, `SELECT * FROM memories WHERE user_id = ?`, user.id)).map(memoryJson),
+      conversations: (await many<ConversationRow>(ctx.db, `SELECT * FROM conversations WHERE user_id = ?`, user.id)).map(conversationJson),
+      messages: await many(ctx.db, `SELECT id, conversation_id, parent_id, role, content, reasoning, status, created_at, updated_at FROM messages WHERE user_id = ?`, user.id),
+      timeline: await many(ctx.db, `SELECT * FROM timeline_events WHERE user_id = ?`, user.id),
+      grants: await many(ctx.db, `SELECT * FROM timeline_grants WHERE user_id = ?`, user.id),
+      notifications: await many(ctx.db, `SELECT * FROM notifications WHERE user_id = ?`, user.id),
+      projects: await many(ctx.db, `SELECT * FROM projects WHERE user_id = ?`, user.id),
+      tasks: await many(ctx.db, `SELECT * FROM tasks WHERE user_id = ?`, user.id),
     })
   })
 
@@ -1634,7 +1650,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const body = await readJson(ctx.req)
     const ok = await verifyPassword(String(body.password ?? ''), user.password_hash)
     if (!ok) throw new HttpError(401, 'invalid_credentials', 'Password is incorrect')
-    deleteUserData(ctx, user.id)
+    await deleteUserData(ctx, user.id)
     clearSessionCookie(ctx.res, ctx.config)
     ctx.log.info('account_deleted', { userId: user.id })
     json(ctx.res, 200, { ok: true })
@@ -1651,7 +1667,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       res,
       url,
       params: {},
-      user: userFromToken(deps.db, cookies(req).cp_session),
+      user: await userFromToken(deps.db, cookies(req).cp_session),
     }
     try {
       if (url.pathname.startsWith('/api/')) assertCsrf(req)
@@ -1665,7 +1681,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       }
       const found = url.pathname.match(match.regex)
       ctx.params = Object.fromEntries(match.keys.map((key, index) => [key, decodeURIComponent(found?.[index + 1] ?? '')]))
-      if (ctx.user) run(deps.db, `UPDATE users SET last_seen_at = ? WHERE id = ?`, nowIso(), ctx.user.id)
+      if (ctx.user) await run(deps.db, `UPDATE users SET last_seen_at = ? WHERE id = ?`, nowIso(), ctx.user.id)
       await match.handler(ctx)
     } catch (error) {
       if (res.headersSent) {

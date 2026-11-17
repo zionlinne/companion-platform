@@ -1,8 +1,14 @@
-# Android 内测壳
+# Android
 
-这是给 `414398fdeb6b0e9d7d79de3d08140f9166e7100c` 做的安装壳，父提交是手测检查点 `07ec01ebd59b2e5da026b5d30582baf4f1caa11b`。没有合并 `main`，没有开云主机，没有公网地址，也没有把供应商 Key 放进应用。
+原来的 debug APK 是开发证据，不是内测成品。普通用户不该在安装后先填服务器地址或供应商 Key。
 
-装上 debug APK 只表示手机上有这个壳。它不能单独注册或聊天。聊天仍然要连到你自己的服务。服务没配 `DEEPSEEK_API_KEY` 时，发送会得到 `model_gateway_unconfigured`，不会用夹具冒充。
+可分发内测包由 `npm run android:trial` 检查 `COMPANION_PUBLIC_ORIGIN`。它必须是真实 HTTPS 源，不能是本机、示例或占位域名。没有这个域名时命令打印 `BLOCKED` 并以状态 2 退出，不生成安装包，也不用假地址冒充完成。通过检查之后，构建会把这个源写进 `BuildConfig.TRIAL_ORIGIN`，应用直接打开站点，没有地址按钮，也没有 Key 输入。
+
+debug 变体仍然保留地址选择器，只给开发者连本机服务。它和内测包不是同一个交付。
+
+这是给 `414398fdeb6b0e9d7d79de3d08140f9166e7100c` 之后的部署分支写的说明，父提交是手测检查点 `07ec01ebd59b2e5da026b5d30582baf4f1caa11b`。没有合并 `main`，没有把供应商 Key 放进应用。
+
+服务没配 `DEEPSEEK_API_KEY` 时，发送会得到 `model_gateway_unconfigured`，不会用夹具冒充。
 
 ## 可安装和可聊天是两件事
 

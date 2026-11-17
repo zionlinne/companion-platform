@@ -1,0 +1,163 @@
+
+> build
+> npm run build -w web
+
+
+> web@0.1.0 build
+> tsc -p tsconfig.json --noEmit && vite build
+
+vite v6.0.7 building for production...
+transforming...
+✓ 3413 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                         0.51 kB │ gzip:   0.32 kB
+dist/assets/KaTeX_Size3-Regular-CTq5MqoE.woff           4.42 kB
+dist/assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2          4.93 kB
+dist/assets/KaTeX_Size2-Regular-Dy4dx90m.woff2          5.21 kB
+dist/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2          5.47 kB
+dist/assets/KaTeX_Size4-Regular-BF-4gkZK.woff           5.98 kB
+dist/assets/KaTeX_Size2-Regular-oD1tc_U0.woff           6.19 kB
+dist/assets/KaTeX_Size1-Regular-C195tn64.woff           6.50 kB
+dist/assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2    6.91 kB
+dist/assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2       6.91 kB
+dist/assets/KaTeX_Size3-Regular-DgpXs0kz.ttf            7.59 kB
+dist/assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff     7.66 kB
+dist/assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff        7.72 kB
+dist/assets/KaTeX_Script-Regular-D3wIWfF6.woff2         9.64 kB
+dist/assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2     10.34 kB
+dist/assets/KaTeX_Size4-Regular-DWFBv043.ttf           10.36 kB
+dist/assets/KaTeX_Script-Regular-D5yQViql.woff         10.59 kB
+dist/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2       11.32 kB
+dist/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2          11.35 kB
+dist/assets/KaTeX_Size2-Regular-B7gKUWhC.ttf           11.51 kB
+dist/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2      12.03 kB
+dist/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2        12.22 kB
+dist/assets/KaTeX_Size1-Regular-Dbsnue_I.ttf           12.23 kB
+dist/assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff      12.32 kB
+dist/assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf     12.34 kB
+dist/assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf        12.37 kB
+dist/assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff        13.21 kB
+dist/assets/KaTeX_Fraktur-Bold-BsDP51OF.woff           13.30 kB
+dist/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2    13.57 kB
+dist/assets/KaTeX_SansSerif-Italic-DN2j7dab.woff       14.11 kB
+dist/assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff         14.41 kB
+dist/assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff     16.03 kB
+dist/assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2       16.40 kB
+dist/assets/KaTeX_Math-Italic-t53AETM-.woff2           16.44 kB
+dist/assets/KaTeX_Script-Regular-C5JkGWo-.ttf          16.65 kB
+dist/assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2       16.78 kB
+dist/assets/KaTeX_Main-Italic-NWA7e6Wa.woff2           16.99 kB
+dist/assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff        18.67 kB
+dist/assets/KaTeX_Math-Italic-DA0__PXp.woff            18.75 kB
+dist/assets/KaTeX_Main-BoldItalic-SpSLRI95.woff        19.41 kB
+dist/assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf       19.44 kB
+dist/assets/KaTeX_Fraktur-Regular-CB_wures.ttf         19.57 kB
+dist/assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf            19.58 kB
+dist/assets/KaTeX_Main-Italic-BMLOBm91.woff            19.68 kB
+dist/assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf        22.36 kB
+dist/assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf          24.50 kB
+dist/assets/KaTeX_Main-Bold-Cx986IdX.woff2             25.32 kB
+dist/assets/KaTeX_Main-Regular-B22Nviop.woff2          26.27 kB
+dist/assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf      27.56 kB
+dist/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2           28.08 kB
+dist/assets/KaTeX_Main-Bold-Jm3AIy58.woff              29.91 kB
+dist/assets/KaTeX_Main-Regular-Dr94JaBh.woff           30.77 kB
+dist/assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf         31.20 kB
+dist/assets/KaTeX_Math-Italic-flOr_0UB.ttf             31.31 kB
+dist/assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf         32.97 kB
+dist/assets/KaTeX_AMS-Regular-DMm9YOAa.woff            33.52 kB
+dist/assets/KaTeX_Main-Italic-3WenGoN9.ttf             33.58 kB
+dist/assets/KaTeX_Main-Bold-waoOVXN0.ttf               51.34 kB
+dist/assets/KaTeX_Main-Regular-ypZvNtVU.ttf            53.58 kB
+dist/assets/KaTeX_AMS-Regular-DRggAlZN.ttf             63.63 kB
+dist/assets/index-D9vzmovU.css                         21.82 kB │ gzip:   4.31 kB
+dist/assets/katex-DVneG3Rq.css                         28.81 kB │ gzip:   8.01 kB
+dist/assets/clone-lIfGXJtj.js                           0.09 kB │ gzip:   0.11 kB
+dist/assets/channel-BSBKE2z0.js                         0.11 kB │ gzip:   0.13 kB
+dist/assets/chunk-FHKO5MBM-DUEc_2vZ.js                  0.19 kB │ gzip:   0.16 kB
+dist/assets/chunk-WVR4S24B--cbBJ3mQ.js                  0.24 kB │ gzip:   0.21 kB
+dist/assets/chunk-ANTBXLJU-BAME7pN2.js                  0.30 kB │ gzip:   0.21 kB
+dist/assets/prism-tsx.min-qX0eu5aN.js                   0.31 kB │ gzip:   0.22 kB
+dist/assets/chunk-GLLZNHP4-CF29mn-0.js                  0.37 kB │ gzip:   0.27 kB
+dist/assets/stateDiagram-v2-EYPG3UTE-1PuwxMxh.js        0.39 kB │ gzip:   0.28 kB
+dist/assets/classDiagram-3BZAVTQC-8bfvLpfu.js           0.43 kB │ gzip:   0.30 kB
+dist/assets/classDiagram-v2-QTMF73CY-8bfvLpfu.js        0.43 kB │ gzip:   0.30 kB
+dist/assets/prism-matlab.min-DIMc2KVV.js                0.43 kB │ gzip:   0.34 kB
+dist/assets/prism-json.min-BNb6iMrr.js                  0.45 kB │ gzip:   0.28 kB
+dist/assets/prism-r.min-TxsGuNZJ.js                     0.53 kB │ gzip:   0.40 kB
+dist/assets/chunk-NRVI72HA-IWkRmtfp.js                  0.53 kB │ gzip:   0.38 kB
+dist/assets/min-D3akx6dd.js                             0.59 kB │ gzip:   0.37 kB
+dist/assets/prism-lua.min-Cp_o7ONA.js                   0.60 kB │ gzip:   0.41 kB
+dist/assets/prism-diff.min-BqFqmCNx.js                  0.60 kB │ gzip:   0.41 kB
+dist/assets/prism-ini.min-DX5Euru7.js                   0.61 kB │ gzip:   0.27 kB
+dist/assets/infoDiagram-DDUCL6P7-BdS-uD_k.js            0.66 kB │ gzip:   0.44 kB
+dist/assets/prism-objectivec.min-BQ1ZVVrY.js            0.69 kB │ gzip:   0.45 kB
+dist/assets/prism-nginx.min-43e5TboO.js                 0.73 kB │ gzip:   0.39 kB
+dist/assets/prism-makefile.min-Dk8DMwhC.js              0.94 kB │ gzip:   0.56 kB
+dist/assets/prism-toml.min-BbWn0e9t.js                  0.95 kB │ gzip:   0.51 kB
+dist/assets/prism-go.min-C01cJoHk.js                    0.97 kB │ gzip:   0.62 kB
+dist/assets/prism-protobuf.min-DiQ_z8B5.js              0.98 kB │ gzip:   0.51 kB
+dist/assets/prism-latex.min-Ct-fIE8d.js                 1.03 kB │ gzip:   0.48 kB
+dist/assets/prism-markup-templating.min-JvNFdlxv.js     1.06 kB │ gzip:   0.55 kB
+dist/assets/prism-scala.min-BcWFFSXv.js                 1.37 kB │ gzip:   0.72 kB
+dist/assets/chunk-OMD6QJNC-DuX5NAcq.js                  1.44 kB │ gzip:   0.64 kB
+dist/assets/prism-docker.min-CKTpBsrp.js                1.51 kB │ gzip:   0.71 kB
+dist/assets/prism-dart.min-CkBajeCT.js                  1.59 kB │ gzip:   0.82 kB
+dist/assets/prism-typescript.min-Brg46jk5.js            1.79 kB │ gzip:   0.87 kB
+dist/assets/prism-scss.min-BaRzhvnp.js                  1.84 kB │ gzip:   0.94 kB
+dist/assets/prism-c.min-BXnsZods.js                     1.89 kB │ gzip:   0.97 kB
+dist/assets/prism-kotlin.min-B1uvbSyh.js                1.92 kB │ gzip:   0.95 kB
+dist/assets/prism-yaml.min-28Vk9VRG.js                  1.94 kB │ gzip:   0.87 kB
+dist/assets/prism-mermaid.min-B4PT3gsS.js               2.08 kB │ gzip:   0.92 kB
+dist/assets/prism-powershell.min-Ud14i9UV.js            2.14 kB │ gzip:   1.27 kB
+dist/assets/prism-jsx.min-3orhgE9G.js                   2.38 kB │ gzip:   0.97 kB
+dist/assets/prism-graphql.min-D_pmf7cL.js               2.52 kB │ gzip:   1.15 kB
+dist/assets/prism-python.min-BslHHfHb.js                2.61 kB │ gzip:   1.39 kB
+dist/assets/prism-perl.min-CeYc5KoD.js                  2.67 kB │ gzip:   1.32 kB
+dist/assets/prism-swift.min-BffDrWE_.js                 2.93 kB │ gzip:   1.31 kB
+dist/assets/prism-rust.min-Bh4GnMXU.js                  2.97 kB │ gzip:   1.47 kB
+dist/assets/prism-cpp.min-SAEnLf0A.js                   3.09 kB │ gzip:   1.51 kB
+dist/assets/prism-sql.min-AgAyy5H_.js                   3.26 kB │ gzip:   1.85 kB
+dist/assets/prism-java.min-BSoTkCMy.js                  3.27 kB │ gzip:   1.52 kB
+dist/assets/prism-haskell.min-DA4_wehu.js               3.47 kB │ gzip:   1.86 kB
+dist/assets/prism-ruby.min-CnmS0T1a.js                  4.01 kB │ gzip:   1.78 kB
+dist/assets/pieDiagram-DBDJKBY4-DYnJIc7n.js             4.02 kB │ gzip:   1.85 kB
+dist/assets/diagram-GUPCWM2R-72i8YLmI.js                4.30 kB │ gzip:   1.89 kB
+dist/assets/prism-markdown.min-CkgcNmHb.js              5.11 kB │ gzip:   1.99 kB
+dist/assets/diagram-RP2FKANI-p3lPjfJe.js                6.02 kB │ gzip:   2.54 kB
+dist/assets/prism-bash.min-cl4oq_rS.js                  6.15 kB │ gzip:   3.04 kB
+dist/assets/prism-csharp.min-6SFkUFwv.js                6.66 kB │ gzip:   2.77 kB
+dist/assets/prism-php.min-CPKOKahL.js                   6.82 kB │ gzip:   2.28 kB
+dist/assets/_baseUniq-ZNxsOwhS.js                       8.50 kB │ gzip:   3.53 kB
+dist/assets/graph-DUy7Tpjc.js                           9.37 kB │ gzip:   3.21 kB
+dist/assets/stateDiagram-UUKSUZ4H-BZCeBqEf.js          10.38 kB │ gzip:   3.64 kB
+dist/assets/dagre-2BBEFEWP-CMB3nz1I.js                 11.26 kB │ gzip:   4.20 kB
+dist/assets/diagram-4IRLE6MV-HsZZSHK7.js               16.29 kB │ gzip:   5.82 kB
+dist/assets/kanban-definition-KOZQBZVT-pAr7GEA0.js     20.60 kB │ gzip:   7.25 kB
+dist/assets/journeyDiagram-FFXJYRFH-CA_iIg95.js        23.52 kB │ gzip:   8.32 kB
+dist/assets/timeline-definition-3HZDQTIS-BAz0yaFZ.js   23.70 kB │ gzip:   8.28 kB
+dist/assets/gitGraphDiagram-OJR772UL-CzvJbMUN.js       24.69 kB │ gzip:   7.59 kB
+dist/assets/erDiagram-HZWUO2LU-CleH-bWL.js             25.34 kB │ gzip:   8.87 kB
+dist/assets/layout-CHBzs_sf.js                         29.11 kB │ gzip:  10.48 kB
+dist/assets/requirementDiagram-EGVEC5DT-43x6bW1I.js    30.26 kB │ gzip:   9.50 kB
+dist/assets/mhchem-Clu1GMwT.js                         33.27 kB │ gzip:   8.24 kB
+dist/assets/quadrantDiagram-YPSRARAO-B5iksuCZ.js       34.26 kB │ gzip:  10.08 kB
+dist/assets/chunk-LXBSTHXV-CDgdk0To.js                 36.78 kB │ gzip:  11.98 kB
+dist/assets/xychartDiagram-FDP5SA34-D92PazuR.js        38.85 kB │ gzip:  10.92 kB
+dist/assets/sankeyDiagram-HRAUVNP4-Bv_UV6aY.js         38.95 kB │ gzip:  14.69 kB
+dist/assets/d3-scale-DlYbYB9H.js                       41.33 kB │ gzip:  15.14 kB
+dist/assets/chunk-JBRWN2VN-GaPLs1Jm.js                 45.31 kB │ gzip:  14.70 kB
+dist/assets/ganttDiagram-WV7ZQ7D5-CfUDXRhz.js          45.42 kB │ gzip:  15.68 kB
+dist/assets/flowDiagram-THRYKUMA-hn8-DFAl.js           61.10 kB │ gzip:  19.59 kB
+dist/assets/c4Diagram-AAMF2YG6-BvThSVaa.js             70.15 kB │ gzip:  19.70 kB
+dist/assets/blockDiagram-ZYB65J3Q-BUbyeILk.js          73.15 kB │ gzip:  20.82 kB
+dist/assets/sequenceDiagram-4MX5Z3NR-DDlGlG-A.js       88.71 kB │ gzip:  25.32 kB
+dist/assets/mindmap-definition-LNHGMQRG-lBn37TE8.js   101.63 kB │ gzip:  28.58 kB
+dist/assets/architectureDiagram-KFL7JDKH-DLKwEO2-.js  148.68 kB │ gzip:  42.12 kB
+dist/assets/katex-Dzu3cFBE.js                         262.55 kB │ gzip:  77.49 kB
+dist/assets/index-eW1Xx1Pz.js                         333.03 kB │ gzip: 107.71 kB
+dist/assets/treemap-KMMF4GRG-CNoNkIUs.js              376.17 kB │ gzip:  93.08 kB
+dist/assets/cytoscape.esm-Di_ihNId.js                 451.13 kB │ gzip: 144.49 kB
+dist/assets/mermaid.core-BFAXu9rY.js                  478.51 kB │ gzip: 133.84 kB
+✓ built in 6.76s

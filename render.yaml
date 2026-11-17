@@ -1,0 +1,42 @@
+# Render Free web service only. No Render Postgres, disk, or cron.
+# DATABASE_URL is a Neon (or other) Postgres URL supplied in the dashboard, sync: false.
+# Do not put a real connection string or provider key in this file.
+services:
+  - type: web
+    name: deep-companion
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run migrate && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: STATIC_DIR
+        value: web/dist
+      - key: INITIATIVE_POLL_MS
+        value: "0"
+      - key: MODEL_GATEWAY_MODE
+        value: live
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.88api.ai/v1
+      - key: DEEPSEEK_MODEL
+        value: deepseek-v4.1-flash
+      - key: REASONING_EFFORT
+        value: low
+      - key: TEMPERATURE
+        value: "2"
+      - key: DATABASE_URL
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

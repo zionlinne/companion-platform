@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api } from '../api.ts'
+import { ApiError, api } from '../api.ts'
 
 type Conversation = { id: string; title: string; updatedAt: string }
 type Project = { id: string; name: string; summary: string }
@@ -18,8 +18,16 @@ export function WorkspacePages({ mode }: { mode: 'home' | 'timeline' | 'projects
 function WorkspaceHome() {
   const navigate = useNavigate()
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [error, setError] = useState('')
   useEffect(() => {
-    void api<{ conversations: Conversation[] }>('/api/conversations?space=workspace').then((data) => setConversations(data.conversations))
+    void api<{ conversations: Conversation[] }>('/api/conversations?space=workspace').then((data) => {
+      setConversations(data.conversations)
+      setStatus('ready')
+    }).catch((caught: unknown) => {
+      setStatus('error')
+      setError(caught instanceof ApiError ? caught.message : '工作区没有读出来')
+    })
   }, [])
   return (
     <main className="page">
@@ -34,10 +42,13 @@ function WorkspaceHome() {
         <Link to="/workspace/projects">项目</Link>
         <Link to="/workspace/grants">授权</Link>
       </div>
+      {status === 'loading' ? <p>正在读取工作对话…</p> : null}
+      {status === 'error' ? <p className="error">{error}</p> : null}
       <div className="stack">
         {conversations.map((conversation) => (
           <Link key={conversation.id} className="panel" to={`/workspace/chat/${conversation.id}`}>{conversation.title}</Link>
         ))}
+        {status === 'ready' && conversations.length === 0 ? <p data-testid="empty-workspace">还没有工作对话。这里的内容不会自动进入 Companion。</p> : null}
       </div>
     </main>
   )

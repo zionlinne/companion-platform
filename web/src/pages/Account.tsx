@@ -55,7 +55,7 @@ function SettingsPage() {
           setMessage('主动消息设置已保存。定时、工作事件、历史跟进和日期提醒还没有实现。')
         }}>
           <h2>主动消息</h2>
-          <p className="muted">这是服务端调度，不是手机后台。已实现的触发只有“已授权时间线事件”。</p>
+          <p className="muted" data-testid="scheduler-limit">免费托管会休眠，后台定时主动消息保持关闭，不能当成已经可用。下面的按钮只给当前登录用户手动检查已授权的时间线，权限没有放宽。定时、工作事件、历史跟进和日期提醒仍未实现。</p>
           <label className="check"><input type="checkbox" checked={settings.enabled} onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })} />开启</label>
           <label>每日上限<input type="number" value={settings.dailyLimit} onChange={(event) => setSettings({ ...settings, dailyLimit: Number(event.target.value) })} /></label>
           <label>每次调度最多模型调用（1–3）<input type="number" value={settings.maxModelCallsPerTick} onChange={(event) => setSettings({ ...settings, maxModelCallsPerTick: Number(event.target.value) })} /></label>

@@ -59,12 +59,21 @@ function CharacterList() {
   const [characters, setCharacters] = useState<Character[]>([])
   const [quota, setQuota] = useState({ used: 0, limit: 5 })
   const [conversations, setConversations] = useState<Array<{ id: string; title: string; characterId: string | null }>>([])
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [error, setError] = useState('')
   useEffect(() => {
-    void api<{ characters: Character[]; used: number; limit: number }>('/api/characters').then((data) => {
+    void Promise.all([
+      api<{ characters: Character[]; used: number; limit: number }>('/api/characters'),
+      api<{ conversations: Array<{ id: string; title: string; characterId: string | null }> }>('/api/conversations?space=companion'),
+    ]).then(([data, chats]) => {
       setCharacters(data.characters)
       setQuota({ used: data.used, limit: data.limit })
+      setConversations(chats.conversations)
+      setStatus('ready')
+    }).catch((caught: unknown) => {
+      setStatus('error')
+      setError(caught instanceof ApiError ? caught.message : '角色列表没有读出来')
     })
-    void api<{ conversations: Array<{ id: string; title: string; characterId: string | null }> }>('/api/conversations?space=companion').then((data) => setConversations(data.conversations))
   }, [])
   return (
     <main className="page">
@@ -73,6 +82,8 @@ function CharacterList() {
         {quota.used < quota.limit ? <Link className="primary" to="/companion/new">新建角色</Link> : <span>已满额，删除后才能新建</span>}
       </div>
       <p className="muted" data-testid="companion-quota">每个账号 {quota.used}/{quota.limit} 个 Companion。人格卡不是长期记忆，删除后名额会释放。</p>
+      {status === 'loading' ? <p>正在读取角色…</p> : null}
+      {status === 'error' ? <p className="error">{error}</p> : null}
       <div className="stack">
         {characters.map((character) => (
           <div className="panel" key={character.id}>
@@ -91,7 +102,7 @@ function CharacterList() {
             </div>
           </div>
         ))}
-        {characters.length === 0 ? <p>还没有角色。</p> : null}
+        {status === 'ready' && characters.length === 0 ? <p data-testid="empty-companions">还没有角色。可以新建，或从示例人格填入后再改成自己的。示例不会变成长期记忆。</p> : null}
       </div>
     </main>
   )

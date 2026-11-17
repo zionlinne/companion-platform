@@ -16,6 +16,22 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(android.os.Bundle savedInstanceState) {
+        String baked = BuildConfig.TRIAL_ORIGIN == null ? "" : BuildConfig.TRIAL_ORIGIN.trim();
+        if (!baked.isEmpty()) {
+            OriginPolicy locked = OriginPolicy.parse(baked, false);
+            if (locked.ok) {
+                this.config = new CapConfig.Builder(this)
+                    .setServerUrl(locked.origin)
+                    .setAllowMixedContent(false)
+                    .create();
+            }
+            super.onCreate(savedInstanceState);
+            if (bridge == null || bridge.getWebView() == null) return;
+            CookieManager cookies = CookieManager.getInstance();
+            cookies.setAcceptCookie(true);
+            cookies.setAcceptThirdPartyCookies(bridge.getWebView(), false);
+            return;
+        }
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         boolean showSetup = prefs.getBoolean("show_setup", true);
         String saved = prefs.getString("origin", "");

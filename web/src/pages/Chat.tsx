@@ -29,6 +29,7 @@ export function ChatPage() {
   const [banner, setBanner] = useState('')
   const [attachmentId, setAttachmentId] = useState<string | null>(null)
   const [attachmentName, setAttachmentName] = useState('')
+  const [uploads, setUploads] = useState<'local' | 'disabled' | ''>('')
 
   async function load() {
     const data = await api<{ conversation: { title: string; model: string }; messages: ChatMessage[] }>(`/api/conversations/${conversationId}`)
@@ -38,23 +39,30 @@ export function ChatPage() {
   }
 
   useEffect(() => {
-    void load()
-    void api<{ models: Array<{ id: string }> }>('/api/models').then((data) => setModels(data.models.map((item) => item.id)))
-    void api<{ mode: string; configured: boolean; note: string }>('/api/gateway').then((data) => {
+    void load().catch((caught: unknown) => setError(caught instanceof ApiError ? caught.message : '对话没有读出来'))
+    void api<{ models: Array<{ id: string }> }>('/api/models').then((data) => setModels(data.models.map((item) => item.id))).catch(() => setError('模型列表没有读出来'))
+    void api<{ mode: string; configured: boolean; note: string; uploads?: 'local' | 'disabled' }>('/api/gateway').then((data) => {
+      setUploads(data.uploads ?? 'local')
       setBanner(data.mode === 'fixture' ? '当前是本地协议夹具，回复不是 DeepSeek，也不能当作真实模型验收。' : data.configured ? '模型请求由服务端网关发出。页面不保存供应商 Key。' : '服务端还没有配置供应商 Key，发送会失败，不会伪造回复。')
-    })
+    }).catch((caught: unknown) => setError(caught instanceof ApiError ? caught.message : '网关状态没有读出来'))
   }, [conversationId])
 
   async function send() {
     setError('')
     setStreaming('')
     setReasoning('')
-    const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+    let response: Response
+    try {
+      response = await fetch(`/api/conversations/${conversationId}/messages`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-Companion-Request': '1' },
-      body: JSON.stringify({ content: draft, model, thinking, attachmentIds: attachmentId ? [attachmentId] : [] }),
-    })
+        body: JSON.stringify({ content: draft, model, thinking, attachmentIds: attachmentId ? [attachmentId] : [] }),
+      })
+    } catch {
+      setError('连不上服务。如果免费托管正在醒来，请稍等再试。')
+      return
+    }
     if (!response.headers.get('content-type')?.includes('text/event-stream')) {
       const data = await response.json() as { error?: { message?: string } }
       setError(data.error?.message ?? '发送失败')
@@ -125,6 +133,7 @@ export function ChatPage() {
       {banner ? <p className="banner" data-testid="gateway-banner">{banner}</p> : null}
       {error ? <p className="error">{error}</p> : null}
       <div className="chat-log" data-testid="chat-log">
+        {messages.length === 0 && !streaming ? <p className="muted" data-testid="empty-chat">还没有消息。发出去的内容会留在服务端。夹具回复会标明不是 DeepSeek。</p> : null}
         {messages.map((message) => (
           <article className={`bubble ${message.role}`} key={message.id} data-testid="message">
             <div className="row">
@@ -171,9 +180,12 @@ export function ChatPage() {
         <label className="check"><input type="checkbox" checked={thinking} onChange={(event) => setThinking(event.target.checked)} />深度思考</label>
         <textarea data-testid="composer" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="写一条消息" />
         <div className="row">
-          <label className="file-input">选择文件
-            <input data-testid="attachment-file" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = '' }} />
-          </label>
+          {uploads === 'local' ? (
+            <label className="file-input">选择文件
+              <input data-testid="attachment-file" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = '' }} />
+            </label>
+          ) : null}
+          {uploads === 'disabled' ? <span data-testid="uploads-disabled">免费托管还不能保存附件，这个按钮没有打开。</span> : null}
           {attachmentName ? <span>{attachmentName}</span> : null}
           <button className="primary" type="button" data-testid="send" onClick={() => void send().catch((caught) => setError(caught instanceof ApiError ? caught.message : '发送失败'))}>发送</button>
         </div>

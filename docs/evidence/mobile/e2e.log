@@ -1,0 +1,5 @@
+
+> e2e
+> node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/run.ts
+
+e2e ok

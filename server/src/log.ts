@@ -1,4 +1,4 @@
-const SENSITIVE_KEY = /password|token|authorization|api[-_]?key|secret|cookie|content|summary|body|prompt|reasoning/i
+const SENSITIVE_KEY = /password|token|authorization|api[-_]?key|secret|cookie|content|summary|body|prompt|reasoning|database|connection/i
 
 export type LogFields = Record<string, unknown>
 
@@ -20,7 +20,7 @@ export function redact(value: unknown, depth = 0): unknown {
     return out
   }
   if (typeof value === 'string') {
-    if (/sk-[A-Za-z0-9_-]{6,}/.test(value) || /Bearer\s+\S+/.test(value)) return '[redacted]'
+    if (/sk-[A-Za-z0-9_-]{6,}/.test(value) || /Bearer\s+\S+/.test(value) || /postgres(?:ql)?:\/\//i.test(value)) return '[redacted]'
     if (value.length > 500) return `${value.slice(0, 80)}…[truncated]`
   }
   return value

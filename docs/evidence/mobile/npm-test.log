@@ -1,0 +1,182 @@
+
+> test
+> node --experimental-strip-types --disable-warning=ExperimentalWarning --test --test-concurrency=1 server/test/*.test.ts mobile/origin-policy.test.mjs mobile/trial-origin.test.mjs
+
+TAP version 13
+# Subtest: app origin policy matches the shared cases
+ok 1 - app origin policy matches the shared cases
+  ---
+  duration_ms: 2.046028
+  type: 'test'
+  ...
+# Subtest: java origin policy matches the same cases
+ok 2 - java origin policy matches the same cases
+  ---
+  duration_ms: 428.751255
+  type: 'test'
+  ...
+# Subtest: debug cleartext stays off the release manifest and the shell has no baked endpoint
+ok 3 - debug cleartext stays off the release manifest and the shell has no baked endpoint
+  ---
+  duration_ms: 0.64637
+  type: 'test'
+  ...
+# Subtest: trial origin stays blocked without a real https host
+ok 4 - trial origin stays blocked without a real https host
+  ---
+  duration_ms: 0.856863
+  type: 'test'
+  ...
+# Subtest: trial build command exits blocked when the origin is unset
+ok 5 - trial build command exits blocked when the origin is unset
+  ---
+  duration_ms: 22.974787
+  type: 'test'
+  ...
+# Subtest: cli creates one administrator and does not print the password
+ok 6 - cli creates one administrator and does not print the password
+  ---
+  duration_ms: 201.320771
+  type: 'test'
+  ...
+# Subtest: invitation registration, session, and profile survive logout
+ok 7 - invitation registration, session, and profile survive logout
+  ---
+  duration_ms: 265.584191
+  type: 'test'
+  ...
+# Subtest: characters, memories, chat branches, isolation, and no key leakage
+ok 8 - characters, memories, chat branches, isolation, and no key leakage
+  ---
+  duration_ms: 257.120278
+  type: 'test'
+  ...
+# Subtest: timeline grants, initiative dedupe, quota, and closed gateway
+ok 9 - timeline grants, initiative dedupe, quota, and closed gateway
+  ---
+  duration_ms: 235.763852
+  type: 'test'
+  ...
+# Subtest: missing provider key fails closed and data survives a process restart
+ok 10 - missing provider key fails closed and data survives a process restart
+  ---
+  duration_ms: 391.682658
+  type: 'test'
+  ...
+# Subtest: memory package round trip stays on one character and persona templates stay separate
+ok 11 - memory package round trip stays on one character and persona templates stay separate
+  ---
+  duration_ms: 173.119285
+  type: 'test'
+  ...
+# Subtest: five companion slots are enforced across create, copy, and import
+ok 12 - five companion slots are enforced across create, copy, and import
+  ---
+  duration_ms: 189.463186
+  type: 'test'
+  ...
+# Subtest: postgres schema, isolation, limits, disabled uploads, and restart persistence
+ok 13 - postgres schema, isolation, limits, disabled uploads, and restart persistence
+  ---
+  duration_ms: 719.894785
+  type: 'test'
+  ...
+# Subtest: password hash verifies and does not store the raw password
+ok 14 - password hash verifies and does not store the raw password
+  ---
+  duration_ms: 110.330526
+  type: 'test'
+  ...
+# Subtest: prompt keeps persona separate from a bounded memory list and drops old history
+ok 15 - prompt keeps persona separate from a bounded memory list and drops old history
+  ---
+  duration_ms: 0.822501
+  type: 'test'
+  ...
+# Subtest: cost is unknown without a configured price and fixture is not a bill
+ok 16 - cost is unknown without a configured price and fixture is not a bill
+  ---
+  duration_ms: 0.518244
+  type: 'test'
+  ...
+# Subtest: memory import parses formats, keeps uncertainty, and dedupes
+ok 17 - memory import parses formats, keeps uncertainty, and dedupes
+  ---
+  duration_ms: 1.153231
+  type: 'test'
+  ...
+# Subtest: logs redact passwords, message text, and provider keys
+ok 18 - logs redact passwords, message text, and provider keys
+  ---
+  duration_ms: 0.502717
+  type: 'test'
+  ...
+# Subtest: production and unflagged fixture mode are refused
+ok 19 - production and unflagged fixture mode are refused
+  ---
+  duration_ms: 0.615769
+  type: 'test'
+  ...
+# Subtest: production postgres config stays off ephemeral disk and does not connect
+ok 20 - production postgres config stays off ephemeral disk and does not connect
+  ---
+  duration_ms: 0.141049
+  type: 'test'
+  ...
+# Subtest: postgres placeholders and migration text ignore string contents and pragmas
+ok 21 - postgres placeholders and migration text ignore string contents and pragmas
+  ---
+  duration_ms: 0.269633
+  type: 'test'
+  ...
+# Subtest: redact hides postgres connection strings
+ok 22 - redact hides postgres connection strings
+  ---
+  duration_ms: 0.327112
+  type: 'test'
+  ...
+# Subtest: quiet hours use UTC minutes and wrap past midnight
+ok 23 - quiet hours use UTC minutes and wrap past midnight
+  ---
+  duration_ms: 0.293521
+  type: 'test'
+  ...
+# Subtest: 88API live body uses reasoning_effort low and omits temperature
+ok 24 - 88API live body uses reasoning_effort low and omits temperature
+  ---
+  duration_ms: 0.848695
+  type: 'test'
+  ...
+# Subtest: temperature is sent only when reasoning_effort is none
+ok 25 - temperature is sent only when reasoning_effort is none
+  ---
+  duration_ms: 0.133374
+  type: 'test'
+  ...
+# Subtest: base URL rejects a second /v1 and a bare 88API host
+ok 26 - base URL rejects a second /v1 and a bare 88API host
+  ---
+  duration_ms: 0.373777
+  type: 'test'
+  ...
+# Subtest: live stream posts the 88API body and does not label the recorder as a fixture
+ok 27 - live stream posts the 88API body and does not label the recorder as a fixture
+  ---
+  duration_ms: 21.102232
+  type: 'test'
+  ...
+# Subtest: live mode without a key fails before any provider request
+ok 28 - live mode without a key fails before any provider request
+  ---
+  duration_ms: 1.450637
+  type: 'test'
+  ...
+1..28
+# tests 28
+# suites 0
+# pass 28
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3531.390674
