@@ -97,7 +97,7 @@ public class MainActivity extends BridgeActivity {
                 PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
                 return info.versionName + " (" + PackageInfoCompat.getLongVersionCode(info) + ")";
             } catch (Exception ex) {
-                return "0.1.0-debug";
+                return BuildConfig.VERSION_NAME;
             }
         }
 

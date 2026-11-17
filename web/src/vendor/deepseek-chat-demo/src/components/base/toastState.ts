@@ -1,7 +1,8 @@
-/** Shim. Upstream toast state depends on the BYOK settings store. */
-export const showToast = (message: { key?: string } | string) => {
-  const text = typeof message === 'string' ? message : message.key ?? ''
-  if (typeof document === 'undefined') return
+import { translate, type TranslationMessage } from '../../i18n/index.js'
+
+export const showToast = (message: TranslationMessage | string) => {
+  const text = typeof message === 'string' ? message : translate(message.key, message.params)
+  if (typeof document === 'undefined' || !text) return
   const el = document.createElement('div')
   el.className = 'cp-toast'
   el.textContent = text

@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 const BLOCKED_HOSTS = new Set([
   'localhost',
   '127.0.0.1',
@@ -40,7 +44,23 @@ function main() {
     process.exit(2)
   }
   console.log(`READY ${decision.origin}`)
-  console.log('下一步才是带同一个 COMPANION_PUBLIC_ORIGIN 执行 Android 构建。这个命令本身不签名、不上传。')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const env = { ...process.env, COMPANION_PUBLIC_ORIGIN: decision.origin }
+  const sync = spawnSync('npx', ['cap', 'sync', 'android'], { cwd: root, env, stdio: 'inherit' })
+  if (sync.error || sync.status !== 0) {
+    console.error(sync.error?.message ?? 'cap sync android failed')
+    process.exit(sync.status || 1)
+  }
+  const build = spawnSync('./gradlew', ['assembleDebug'], {
+    cwd: path.join(root, 'android'),
+    env,
+    stdio: 'inherit',
+  })
+  if (build.error) {
+    console.error(build.error.message)
+    process.exit(1)
+  }
+  process.exit(build.status ?? 1)
 }
 
 if (process.argv[1] && process.argv[1].endsWith('trial-origin.mjs')) main()
