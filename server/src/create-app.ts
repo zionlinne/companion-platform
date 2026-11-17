@@ -13,6 +13,7 @@ import {
   streamAssistant,
 } from './chat-service.ts'
 import { gatewayConfigured, isKnownModel, MODELS, type AppConfig, DEFAULT_MODEL } from './config.ts'
+import { describeUpstream } from './upstream-request.ts'
 import { many, one, run, withTx } from './db.ts'
 import { streamCompletion } from './gateway.ts'
 import {
@@ -339,6 +340,15 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
           : gatewayConfigured(ctx.config)
             ? 'Server gateway is configured. The browser does not receive the provider key.'
             : 'Server provider key is not configured. Chat will fail closed.',
+      upstream:
+        ctx.config.gatewayMode === 'live'
+          ? describeUpstream({
+              baseUrl: ctx.config.deepseekBaseUrl,
+              model: ctx.config.deepseekModel,
+              reasoningEffort: ctx.config.reasoningEffort,
+              temperature: ctx.config.temperature,
+            })
+          : null,
     })
   })
 
