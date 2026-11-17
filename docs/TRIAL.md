@@ -1,6 +1,10 @@
 # 可手测检查点
 
-这是给人手测交互的固定版本，不是公开网站，也没有预置试用账号。请在本机启动。没有供应商 Key 时，真实模型对话不可用，页面不能把夹具回复当成 DeepSeek。
+固定代码提交：`07ec01ebd59b2e5da026b5d30582baf4f1caa11b`
+
+分支：`cursor/companion-platform-mvp-7b4d`
+
+这是给人手测交互的固定版本，不是公开网站，也没有预置试用账号。请在本机启动。没有供应商 Key 时，真实模型对话不可用，页面不能把夹具回复当成 DeepSeek。原始日志在 `docs/evidence/companion-platform-trial-logs.zip`，绑定上面的提交；`npm test`、`npm run typecheck`、`npm run build`、`npm run e2e` 退出码都是 0。截图在 `docs/evidence/screenshots/`。
 
 ## 启动
 
