@@ -6,6 +6,7 @@ import { abortBill, billingState, closeBill, openBill } from './wallet.ts'
 import { HttpError, newId, nowIso } from './http.ts'
 import type { Logger } from './log.ts'
 import { locateScore, normalizeText, sameMemory } from './memory-text.ts'
+import { deleteEmbedding } from './memory-retrieval.ts'
 import type { PromptMessage } from './prompt.ts'
 import type { MemoryCategory, MemoryRow, MemoryStatus, Space } from './types.ts'
 
@@ -341,6 +342,7 @@ export async function applyMemoryDecision(db: SqlDb, scope: MemoryScope, decisio
           scope.userId
         )
         if (!changed) throw new Error('memory_conflict')
+        await deleteEmbedding(db, match.id)
         result = { result: nextStatus === 'expired' ? 'expired' : 'superseded', memoryId, previousId: match.id }
       }
     }
@@ -362,6 +364,7 @@ const EXTRACTION_PROMPT = [
   '只保留稳定偏好和习惯、重要经历和事实、长期计划和项目、Companion 的重要共同经历、会持续有用的背景。普通寒暄和一次性问答不要保存。',
   '不要修改人格，也不要输出 category 为 persona 的项。不要把推断写成用户明确说过的事实。',
   '更正已有记忆时，target 填写旧记忆里能唯一定位的片段。change 用 correction 表示原来就错，fact_changed 表示过去为真但现在不再当前，addition 表示补充且不覆盖。',
+  '更正或补充时，content 写当前事实本身。不要只写“改了”或“不喝了”这类变化过程。',
   '目标不唯一或不能确定时，uncertain 设为 true。没有值得保存的内容时返回 {"memories":[]}。',
   'JSON: {"memories":[{"action":"save"|"correct"|"supplement"|"expire"|"skip","category":"preference"|"habit"|"experience"|"plan"|"shared_event"|"topic"|"open_item"|"relationship"|"background"|"fact"|"event","content":"...","target":"","change":"correction"|"fact_changed"|"addition"|null,"confidence":0.0,"uncertain":false}]}',
 ].join('\n')

@@ -45,6 +45,12 @@ export type AppConfig = {
   fxCnyFenPerUsd: number | null
   fxSource: string | null
   fxQuotedAt: string | null
+  embeddingMode: 'off' | 'local' | 'http'
+  embeddingBaseUrl: string | null
+  embeddingApiKey: string | null
+  embeddingModel: string | null
+  embeddingTimeoutMs: number
+  embeddingMinCosine: number
 }
 
 const bool = (value: string | undefined, fallback: boolean) => {
@@ -85,6 +91,20 @@ function priceCurrencyOf(value: string | undefined): 'unset' | 'CNY' | 'USD' {
   if (!value || value === 'unset') return 'unset'
   if (value === 'CNY' || value === 'USD') return value
   throw new Error('MODEL_PRICE_CURRENCY must be CNY, USD, or unset')
+}
+
+function embeddingModeOf(value: string | undefined): 'off' | 'local' | 'http' {
+  if (value === 'off') return 'off'
+  if (!value || value === 'local') return 'local'
+  if (value === 'http') return 'http'
+  throw new Error('EMBEDDING_MODE must be off, local, or http')
+}
+
+function unitInterval(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) throw new Error(`${name} must be between 0 and 1`)
+  return parsed
 }
 
 function nonNegativeInt(value: string | undefined, fallback: number, name: string): number {
@@ -157,6 +177,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
           : null,
     fxSource: overrides.fxSource !== undefined ? overrides.fxSource : env.FX_SOURCE?.trim() || null,
     fxQuotedAt: overrides.fxQuotedAt !== undefined ? overrides.fxQuotedAt : env.FX_QUOTED_AT?.trim() || null,
+    embeddingMode: overrides.embeddingMode ?? embeddingModeOf(env.EMBEDDING_MODE),
+    embeddingBaseUrl: overrides.embeddingBaseUrl !== undefined ? overrides.embeddingBaseUrl : env.EMBEDDING_BASE_URL?.trim() || null,
+    embeddingApiKey: overrides.embeddingApiKey !== undefined ? overrides.embeddingApiKey : env.EMBEDDING_API_KEY?.trim() || null,
+    embeddingModel: overrides.embeddingModel !== undefined ? overrides.embeddingModel : env.EMBEDDING_MODEL?.trim() || null,
+    embeddingTimeoutMs: overrides.embeddingTimeoutMs ?? nonNegativeInt(env.EMBEDDING_TIMEOUT_MS, 2500, 'EMBEDDING_TIMEOUT_MS'),
+    embeddingMinCosine: overrides.embeddingMinCosine ?? unitInterval(env.EMBEDDING_MIN_COSINE, 0.44, 'EMBEDDING_MIN_COSINE'),
   }
   if (config.marginBps >= 10_000) throw new Error('MARGIN_BPS must be below 10000')
   if (config.gatewayMode === 'fixture' && !config.fixtureBaseUrl) {

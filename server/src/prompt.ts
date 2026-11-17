@@ -77,9 +77,10 @@ export function assembleCompanionPrompt(input: {
   history: HistoryTurn[]
   attachmentExcerpt?: string
   topic?: string
+  ranked?: boolean
 }): { messages: PromptMessage[]; stats: Record<string, number | boolean> } {
   const persona = personaText(input.persona)
-  const kept = rankMemories(input.memories, input.topic)
+  const kept = input.ranked ? input.memories.slice(0, PROMPT_LIMITS.memoryCount) : rankMemories(input.memories, input.topic)
   const memoryLines = kept.map((memory) => {
     const fact = memory.explicit ? 'explicit' : 'unconfirmed'
     return `- (${memory.category}, ${fact}, source=${memory.source}, updated=${memory.updatedAt}) ${clip(memory.content, PROMPT_LIMITS.memoryChars)}`
@@ -122,8 +123,9 @@ export function assembleWorkspacePrompt(input: {
   attachmentExcerpt?: string
   memories?: MemorySnippet[]
   topic?: string
+  ranked?: boolean
 }): { messages: PromptMessage[]; stats: Record<string, number> } {
-  const kept = input.memories ? rankMemories(input.memories, input.topic) : []
+  const kept = input.memories ? (input.ranked ? input.memories.slice(0, PROMPT_LIMITS.memoryCount) : rankMemories(input.memories, input.topic)) : []
   const memoryLines = kept.map((memory) => {
     const fact = memory.explicit ? 'explicit' : 'unconfirmed'
     return `- (${memory.category}, ${fact}, source=${memory.source}, updated=${memory.updatedAt}) ${clip(memory.content, PROMPT_LIMITS.memoryChars)}`

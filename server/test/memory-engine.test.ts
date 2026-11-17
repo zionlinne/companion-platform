@@ -98,7 +98,7 @@ test('sqlite migration keeps an existing memory and accepts history statuses', a
      VALUES ('legacy-memory', 'legacy-user', 'legacy-char', 'fact', '旧记忆不能丢', 'user', 1, '原备注', 'active', ?, ?)`,
     [stamped, '2024-02-01T00:00:00.000Z']
   )
-  assert.deepEqual(await migrate(db), ['003_memory_engine.sql', '004_wallet.sql'])
+  assert.deepEqual(await migrate(db), ['003_memory_engine.sql', '004_wallet.sql', '005_memory_embeddings.sql'])
   const kept = await db.get<{ content: string; note: string; space: string; status: string; confidence: number; created_at: string }>(
     `SELECT content, note, space, status, confidence, created_at FROM memories WHERE id = 'legacy-memory'`
   )
@@ -114,7 +114,7 @@ test('sqlite migration keeps an existing memory and accepts history statuses', a
   assert.equal(status?.status, 'superseded')
   await db.close()
   const fresh = openDatabase({ databaseUrl: null, databasePath: path.join(dir, 'fresh.sqlite') })
-  assert.deepEqual(await migrate(fresh), ['001_init.sql', '002_memory_note.sql', '003_memory_engine.sql', '004_wallet.sql'])
+  assert.deepEqual(await migrate(fresh), ['001_init.sql', '002_memory_note.sql', '003_memory_engine.sql', '004_wallet.sql', '005_memory_embeddings.sql'])
   await fresh.close()
   fs.rmSync(dir, { recursive: true, force: true })
   assert.equal(migrationSql('PRAGMA foreign_keys = OFF;\nSELECT 1;', 'postgres').includes('PRAGMA'), false)

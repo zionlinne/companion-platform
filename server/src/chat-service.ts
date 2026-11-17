@@ -7,6 +7,7 @@ import { GatewayError, streamCompletion } from './gateway.ts'
 import { abortBill, closeBill, openBill } from './wallet.ts'
 import { HttpError, newId, nowIso, type Ctx } from './http.ts'
 import { loadActiveMemories, observeChatTurn, trackObservation } from './memory-engine.ts'
+import { selectPromptMemories } from './memory-retrieval.ts'
 import {
   assembleCompanionPrompt,
   assembleWorkspacePrompt,
@@ -160,15 +161,29 @@ export async function streamAssistant(
     throw error
   }
   const topic = [...input.history].reverse().find((turn) => turn.role === 'user')?.content
-  const memories = await loadActiveMemories(ctx.db, ctx.user!.id, conversation.space, conversation.character_id)
-  const snippets: MemorySnippet[] = memories.map((memory) => ({
-    category: memory.category,
-    content: memory.content,
-    source: memory.source,
-    updatedAt: memory.updated_at,
-    explicit: memory.explicit === 1,
-    status: memory.status,
-  }))
+  let snippets: MemorySnippet[]
+  let ranked = false
+  try {
+    const selected = await selectPromptMemories(ctx.db, ctx.config, ctx.log, {
+      userId: ctx.user!.id,
+      space: conversation.space,
+      characterId: conversation.character_id,
+      topic,
+    })
+    snippets = selected.memories
+    ranked = selected.mode === 'hybrid'
+  } catch (error) {
+    ctx.log.info('memory_retrieval', { degraded: 'error', name: error instanceof Error ? error.name : 'Error' })
+    const memories = await loadActiveMemories(ctx.db, ctx.user!.id, conversation.space, conversation.character_id)
+    snippets = memories.map((memory) => ({
+      category: memory.category,
+      content: memory.content,
+      source: memory.source,
+      updatedAt: memory.updated_at,
+      explicit: memory.explicit === 1,
+      status: memory.status,
+    }))
+  }
   const assembled =
     conversation.space === 'companion' && character
       ? assembleCompanionPrompt({
@@ -177,12 +192,14 @@ export async function streamAssistant(
           history: input.history,
           attachmentExcerpt: input.attachmentExcerpt,
           topic,
+          ranked,
         })
       : assembleWorkspacePrompt({
           history: input.history,
           attachmentExcerpt: input.attachmentExcerpt,
           memories: snippets,
           topic,
+          ranked,
         })
 
   ctx.res.writeHead(200, {
