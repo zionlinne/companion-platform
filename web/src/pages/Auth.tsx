@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError, api, type User } from '../api.ts'
 import { useSession } from '../session.tsx'
@@ -11,6 +11,13 @@ export function AuthPages({ mode }: { mode: 'login' | 'register' }) {
   const [invitationCode, setInvitationCode] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState('')
+  const [registration, setRegistration] = useState<'unknown' | 'unavailable' | 'needs_invite'>('unknown')
+
+  useEffect(() => {
+    void api<{ registration?: string }>('/api/health')
+      .then((data) => setRegistration(data.registration === 'needs_invite' ? 'needs_invite' : 'unavailable'))
+      .catch(() => setRegistration('unknown'))
+  }, [])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -38,6 +45,11 @@ export function AuthPages({ mode }: { mode: 'login' | 'register' }) {
           <li>可以套用示例人格，再查看、增删和导入记忆。导入要先预览再确认。对话存在服务端。</li>
         </ol>
         <p className="muted" data-testid="sleep-note">如果一直停在读取会话，或提示连不上服务，免费托管可能正在醒来，等一会儿再刷新。附件上传和定时主动消息在免费托管上不可用，页面不会假装已经打开。</p>
+        <p data-testid="registration-state">
+          {registration === 'unavailable'
+            ? '管理员还没有初始化，注册现在不可用。'
+            : '没有邀请码时不能完成注册。邀请码由已登录的管理员生成，不会出现在日志里。'}
+        </p>
       </section>
       <form className="panel" onSubmit={(event) => void submit(event)}>
         {error ? <p className="error" data-testid="auth-error">{error}</p> : null}
@@ -49,7 +61,7 @@ export function AuthPages({ mode }: { mode: 'login' | 'register' }) {
             <label>显示名<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
           </>
         ) : null}
-        <button className="primary" type="submit">{mode === 'login' ? '登录' : '注册'}</button>
+        <button className="primary" type="submit" disabled={mode === 'register' && registration !== 'needs_invite'}>{mode === 'login' ? '登录' : '注册'}</button>
       </form>
       <p>{mode === 'login' ? <Link to="/register">使用邀请码注册</Link> : <Link to="/login">已有账号，去登录</Link>}</p>
     </main>

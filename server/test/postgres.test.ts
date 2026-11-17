@@ -121,6 +121,7 @@ test('postgres schema, isolation, limits, disabled uploads, and restart persiste
   const health = await api(baseUrl, 'GET', '/api/health')
   assert.equal(health.status, 200)
   assert.equal(health.json.ok, true)
+  assert.equal(health.json.registration, 'needs_invite')
   const foreign = await api(baseUrl, 'POST', '/api/login', {
     body: { email: 'admin@example.com', password: 'AdminPassw0rd!123' },
     headers: { Origin: 'https://evil.example' },
