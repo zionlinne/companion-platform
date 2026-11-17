@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { AppConfig } from './config.ts'
 import { isUniqueViolation, many, one, run, withTx, type SqlDb } from './db.ts'
 import { HttpError, newId, nowIso, sha256 } from './http.ts'
+import { ensureWallet } from './wallet.ts'
 import type { Logger } from './log.ts'
 import { assertPasswordPolicy, hashPassword, verifyPassword } from './password.ts'
 import type { InvitationRow, SessionRow, UserRow } from './types.ts'
@@ -71,6 +72,7 @@ async function insertAdminIfMissing(db: SqlDb, config: AppConfig, user: UserRow,
       throw error
     }
     await insertQuota(db, user.id, config, at)
+    await ensureWallet(db, user.id, at)
     return 'created'
   })
 }
@@ -250,6 +252,7 @@ export async function registerUser(
       at
     )
     await insertQuota(db, user.id, config, at)
+    await ensureWallet(db, user.id, at)
     return user
   })
 }

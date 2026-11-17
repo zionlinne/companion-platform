@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import type { AppConfig } from './config.ts'
 import { isUniqueViolation, many, one, run, withTx, type SqlDb } from './db.ts'
-import { streamCompletion } from './gateway.ts'
-import { newId, nowIso } from './http.ts'
+import { streamCompletion, type StreamResult } from './gateway.ts'
+import { abortBill, billingState, closeBill, openBill } from './wallet.ts'
+import { HttpError, newId, nowIso } from './http.ts'
 import type { Logger } from './log.ts'
 import { locateScore, normalizeText, sameMemory } from './memory-text.ts'
 import type { PromptMessage } from './prompt.ts'
@@ -422,10 +423,11 @@ async function completeMemory(input: {
   messages: PromptMessage[]
   complete?: MemoryCompleter
   timeoutMs: number
-}): Promise<string> {
+}): Promise<{ text: string; usage: StreamResult | null }> {
+  let usage: StreamResult | null = null
   const complete = input.complete ?? (input.config.nodeEnv === 'test' ? testCompleter : null) ?? (async (call: { model: string; messages: PromptMessage[]; signal: AbortSignal }) => {
     let content = ''
-    await streamCompletion(input.config, {
+    usage = await streamCompletion(input.config, {
       model: call.model,
       messages: call.messages,
       thinking: false,
@@ -437,13 +439,14 @@ async function completeMemory(input: {
     return content
   })
   const signal = AbortSignal.timeout(input.timeoutMs)
-  return await new Promise((resolve, reject) => {
+  const text = await new Promise<string>((resolve, reject) => {
     const onAbort = () => reject(Object.assign(new Error('timeout'), { code: 'timeout' }))
     signal.addEventListener('abort', onAbort, { once: true })
     complete({ model: input.model, messages: input.messages, signal }).then(resolve, reject).finally(() => {
       signal.removeEventListener('abort', onAbort)
     })
   })
+  return { text, usage }
 }
 
 function countable(result: ApplyResult['result']): boolean {
@@ -499,16 +502,37 @@ export async function observeChatTurn(input: {
     }
     const active = await activeMemories(input.db, scope)
     let raw = ''
+    const memoryRequestId = `memory:${input.messageId}`
+    let heldMemory = false
     try {
-      raw = await completeMemory({
+      if (billingState(input.config) === 'ready') {
+        await openBill(input.db, input.config, input.userId, memoryRequestId)
+        heldMemory = true
+      }
+      const completed = await completeMemory({
         config: input.config,
         model: input.model,
         messages: extractionMessages(input.userText, input.assistantText, active),
         complete: input.complete,
         timeoutMs: input.timeoutMs ?? MODEL_TIMEOUT_MS,
       })
+      raw = completed.text
+      if (heldMemory) {
+        await closeBill(input.db, input.config, {
+          userId: input.userId,
+          requestId: memoryRequestId,
+          kind: 'memory',
+          model: input.model,
+          promptTokens: completed.usage?.promptTokens ?? null,
+          completionTokens: completed.usage?.completionTokens ?? null,
+          source: completed.usage?.source ?? (input.config.gatewayMode === 'fixture' ? 'fixture' : 'live'),
+        })
+        heldMemory = false
+      }
     } catch (error) {
-      report.modelReason = modelFailure(error)
+      if (heldMemory) await abortBill(input.db, input.userId, memoryRequestId)
+      const skipped = error instanceof HttpError && error.code === 'insufficient_balance'
+      report.modelReason = skipped ? 'skipped_balance' : modelFailure(error)
       await finishJob(input.db, input.messageId, 'failed', report.modelReason)
       report.reason = report.saved ? 'saved' : report.modelReason
       logReport()

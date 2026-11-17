@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet, Route, BrowserRouter, Routes, useMatch, useNavigate } from 'react-router-dom'
 import { api } from './api.ts'
 import { AccountPages } from './pages/Account.tsx'
+import { RechargePage } from './pages/Recharge.tsx'
 import { AuthPages } from './pages/Auth.tsx'
 import { CompanionPages } from './pages/Companion.tsx'
 import { ChatPage } from './pages/Chat.tsx'
@@ -50,6 +51,7 @@ function Layout() {
           <NavLink to="/workspace">工作区</NavLink>
           <NavLink to="/notifications">通知</NavLink>
           <NavLink to="/settings">设置</NavLink>
+          <NavLink to="/recharge">充值</NavLink>
           {user.role === 'admin' ? <NavLink to="/admin">管理</NavLink> : null}
         </nav>
         <div className="rail-foot">
@@ -93,6 +95,7 @@ export function App() {
             <Route path="/workspace/chat/:conversationId" element={<ChatPage />} />
             <Route path="/notifications" element={<AccountPages mode="notifications" />} />
             <Route path="/settings" element={<AccountPages mode="settings" />} />
+            <Route path="/recharge" element={<RechargePage />} />
             <Route path="/privacy" element={<AccountPages mode="privacy" />} />
             <Route path="/admin" element={<AccountPages mode="admin" />} />
           </Route>

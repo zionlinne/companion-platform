@@ -352,6 +352,12 @@ label.file-input input[type="file"] {
   letter-spacing: -0.03em;
 }
 .auth-panel .panel { box-shadow: none; }
+.recharge-closed { background: var(--surface-2); }
+.recharge-closed button:disabled { opacity: 0.55; }
+.qr-frame { width: min(220px, 70vw); height: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.order { padding: 12px 0; border-top: 1px solid var(--line); }
+.order:first-of-type { border-top: 0; }
+.file-row { display: flex; flex-direction: column; gap: 6px; }
 
 .chat-page {
   flex: 1;

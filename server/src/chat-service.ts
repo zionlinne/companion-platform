@@ -4,6 +4,7 @@ import type { ServerResponse } from 'node:http'
 import { gatewayConfigured } from './config.ts'
 import { many, one, run } from './db.ts'
 import { GatewayError, streamCompletion } from './gateway.ts'
+import { abortBill, closeBill, openBill } from './wallet.ts'
 import { HttpError, newId, nowIso, type Ctx } from './http.ts'
 import { loadActiveMemories, observeChatTurn, trackObservation } from './memory-engine.ts'
 import {
@@ -131,6 +132,9 @@ export async function streamAssistant(
   }
   const assistantId = newId()
   const at = nowIso()
+  const userId = ctx.user!.id
+  await openBill(ctx.db, ctx.config, userId, assistantId)
+  try {
   await run(
     ctx.db,
     `INSERT INTO messages (id, user_id, conversation_id, parent_id, role, content, reasoning, status, created_at, updated_at)
@@ -151,6 +155,10 @@ export async function streamAssistant(
     conversation.id,
     ctx.user!.id
   )
+  } catch (error) {
+    await abortBill(ctx.db, userId, assistantId)
+    throw error
+  }
   const topic = [...input.history].reverse().find((turn) => turn.role === 'user')?.content
   const memories = await loadActiveMemories(ctx.db, ctx.user!.id, conversation.space, conversation.character_id)
   const snippets: MemorySnippet[] = memories.map((memory) => ({
@@ -233,6 +241,20 @@ export async function streamAssistant(
       result.source,
       doneAt
     )
+    try {
+      await closeBill(ctx.db, ctx.config, {
+        userId,
+        requestId: assistantId,
+        kind: 'chat',
+        model: input.model,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        source: result.source,
+      })
+    } catch (error) {
+      await abortBill(ctx.db, userId, assistantId)
+      ctx.log.error('chat_bill_failed', { name: error instanceof Error ? error.name : 'Error' })
+    }
     const userTurn = [...input.history].reverse().find((turn) => turn.role === 'user')
     if (userTurn && input.parentId) {
       trackObservation(observeChatTurn({
@@ -262,6 +284,7 @@ export async function streamAssistant(
             : 'Usage was reported without a configured unit price. Cost is unknown.',
     })
   } catch (error) {
+    await abortBill(ctx.db, userId, assistantId)
     const aborted = abort.signal.aborted
     const code = aborted ? 'aborted' : error instanceof GatewayError ? error.code : 'provider_error'
     const message = aborted
