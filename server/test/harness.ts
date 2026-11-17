@@ -28,6 +28,13 @@ export async function start(options?: {
   databasePath?: string
   dataDir?: string
   dir?: string
+  billingEnabled?: boolean
+  priceCurrency?: 'unset' | 'CNY' | 'USD'
+  billingReserveFen?: number
+  marginBps?: number
+  fxCnyFenPerUsd?: number | null
+  fxSource?: string | null
+  fxQuotedAt?: string | null
 }): Promise<Running> {
   resetLoginFailures()
   const mode = options?.mode ?? 'fixture'
@@ -48,6 +55,13 @@ export async function start(options?: {
       deepseekApiKey: options?.apiKey === undefined ? 'sk-test-should-not-leak-9f3a' : options.apiKey,
       deepseekBaseUrl: options?.baseUrl ?? 'https://api.deepseek.com',
       prices: options?.prices ?? {},
+      billingEnabled: options?.billingEnabled ?? false,
+      priceCurrency: options?.priceCurrency ?? 'unset',
+      billingReserveFen: options?.billingReserveFen ?? 0,
+      marginBps: options?.marginBps ?? 3000,
+      fxCnyFenPerUsd: options?.fxCnyFenPerUsd ?? null,
+      fxSource: options?.fxSource ?? null,
+      fxQuotedAt: options?.fxQuotedAt ?? null,
       allowTestClock: true,
       loginLimit: 100,
       initiativePollMs: 0,

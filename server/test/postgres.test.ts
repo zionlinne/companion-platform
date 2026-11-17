@@ -120,12 +120,16 @@ test('postgres schema, isolation, limits, disabled uploads, and restart persiste
     ['legacy-memory', 'legacy-user', 'legacy-char', '旧记忆不能丢', '原备注', stamped, '2024-02-01T00:00:00.000Z']
   )
   const applied = await migrate(db)
-  assert.deepEqual(applied, ['003_memory_engine.sql'])
+  assert.deepEqual(applied, ['003_memory_engine.sql', '004_wallet.sql'])
   assert.deepEqual(await migrate(db), [])
+  const legacy = await db.get<{ password_hash: string }>(`SELECT password_hash FROM users WHERE id = 'legacy-user'`)
+  assert.equal(legacy?.password_hash, 'hash')
+  const legacyWallet = await db.get<{ available_fen: number }>(`SELECT available_fen FROM wallets WHERE user_id = 'legacy-user'`)
+  assert.equal(Number(legacyWallet?.available_fen), 0)
   const tables = await db.all<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
   )
-  for (const required of ['users', 'characters', 'memories', 'conversations', 'timeline_grants', 'schema_migrations', 'memory_jobs', 'memory_applies']) {
+  for (const required of ['users', 'characters', 'memories', 'conversations', 'timeline_grants', 'schema_migrations', 'memory_jobs', 'memory_applies', 'wallets', 'recharge_orders']) {
     assert.equal(tables.some((row) => row.table_name === required), true, required)
   }
   const note = await db.get<{ data_type: string }>(

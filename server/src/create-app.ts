@@ -38,6 +38,8 @@ import {
 } from './http.ts'
 import type { Ctx } from './http.ts'
 import { defaultInitiative, publicSettings, tickInitiative } from './initiative.ts'
+import { registerRechargeRoutes } from './recharge.ts'
+import { abortBill, closeBill, openBill } from './wallet.ts'
 import type { Logger } from './log.ts'
 import { dedupeImports, memoryPackage, parseMemoryImport, type ImportItem } from './memory-import.ts'
 import { PERSONA_TEMPLATES } from './persona-templates.ts'
@@ -304,6 +306,10 @@ async function deleteUserData(ctx: Ctx, userId: string) {
   await run(ctx.db, `DELETE FROM invitation_redemptions WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM sessions WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM quotas WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM model_usage_records WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM wallet_transactions WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM recharge_orders WHERE user_id = ?`, userId)
+  await run(ctx.db, `DELETE FROM wallets WHERE user_id = ?`, userId)
   await run(ctx.db, `DELETE FROM users WHERE id = ?`, userId)
 }
 
@@ -959,7 +965,11 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
       history = historyFrom(await messagePath(ctx, conversation.id, conversation.active_message_id)).slice(-8)
     }
     let content = ''
-    const result = await streamCompletion(ctx.config, {
+    const billId = `suggest:${newId()}`
+    await openBill(ctx.db, ctx.config, user.id, billId)
+    let result: Awaited<ReturnType<typeof streamCompletion>>
+    try {
+    result = await streamCompletion(ctx.config, {
       model: DEFAULT_MODEL,
       thinking: false,
       messages: [
@@ -975,10 +985,15 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
         if (delta.content) content += delta.content
       },
     })
+    } catch (error) {
+      await abortBill(ctx.db, user.id, billId)
+      throw error
+    }
     let parsed: { memories?: Array<{ category?: string; content?: string }> }
     try {
       parsed = JSON.parse(content) as { memories?: Array<{ category?: string; content?: string }> }
     } catch {
+      await abortBill(ctx.db, user.id, billId)
       throw new HttpError(422, 'model_output_unusable', 'Model output was not saved because it was not valid JSON')
     }
     const at = nowIso()
@@ -1037,6 +1052,19 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
       result.source,
       at
     )
+    try {
+      await closeBill(ctx.db, ctx.config, {
+        userId: user.id,
+        requestId: billId,
+        kind: 'suggest',
+        model: DEFAULT_MODEL,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        source: result.source,
+      })
+    } catch {
+      await abortBill(ctx.db, user.id, billId)
+    }
     json(ctx.res, 200, {
       memories: created.map(memoryJson),
       note: 'Suggestions stay unconfirmed until you explicitly save them. They are not treated as facts.',
@@ -1680,6 +1708,8 @@ export function createApp(deps: { db: SqlDb; config: AppConfig; log: Logger }) {
       tasks: await many(ctx.db, `SELECT * FROM tasks WHERE user_id = ?`, user.id),
     })
   })
+
+  registerRechargeRoutes(add)
 
   add('POST', '/api/me/delete', async (ctx) => {
     const user = requireUser(ctx)

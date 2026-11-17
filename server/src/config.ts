@@ -38,6 +38,13 @@ export type AppConfig = {
   deepseekModel: string | null
   reasoningEffort: 'low' | 'high' | 'max' | 'none'
   temperature: number
+  billingEnabled: boolean
+  priceCurrency: 'unset' | 'CNY' | 'USD'
+  marginBps: number
+  billingReserveFen: number
+  fxCnyFenPerUsd: number | null
+  fxSource: string | null
+  fxQuotedAt: string | null
 }
 
 const bool = (value: string | undefined, fallback: boolean) => {
@@ -72,6 +79,19 @@ export function parsePrices(raw: string | undefined): Record<string, ModelPrice>
 
 export function isKnownModel(model: string): boolean {
   return MODELS.some((item) => item.id === model)
+}
+
+function priceCurrencyOf(value: string | undefined): 'unset' | 'CNY' | 'USD' {
+  if (!value || value === 'unset') return 'unset'
+  if (value === 'CNY' || value === 'USD') return value
+  throw new Error('MODEL_PRICE_CURRENCY must be CNY, USD, or unset')
+}
+
+function nonNegativeInt(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`)
+  return parsed
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Partial<AppConfig> = {}): AppConfig {
@@ -125,7 +145,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     deepseekModel: upstream.model,
     reasoningEffort: upstream.reasoningEffort,
     temperature: upstream.temperature,
+    billingEnabled: overrides.billingEnabled ?? bool(env.BILLING_ENABLED, false),
+    priceCurrency: overrides.priceCurrency ?? priceCurrencyOf(env.MODEL_PRICE_CURRENCY),
+    marginBps: overrides.marginBps ?? nonNegativeInt(env.MARGIN_BPS, 3000, 'MARGIN_BPS'),
+    billingReserveFen: overrides.billingReserveFen ?? nonNegativeInt(env.BILLING_RESERVE_FEN, 0, 'BILLING_RESERVE_FEN'),
+    fxCnyFenPerUsd:
+      overrides.fxCnyFenPerUsd !== undefined
+        ? overrides.fxCnyFenPerUsd
+        : env.FX_CNY_FEN_PER_USD
+          ? nonNegativeInt(env.FX_CNY_FEN_PER_USD, 0, 'FX_CNY_FEN_PER_USD')
+          : null,
+    fxSource: overrides.fxSource !== undefined ? overrides.fxSource : env.FX_SOURCE?.trim() || null,
+    fxQuotedAt: overrides.fxQuotedAt !== undefined ? overrides.fxQuotedAt : env.FX_QUOTED_AT?.trim() || null,
   }
+  if (config.marginBps >= 10_000) throw new Error('MARGIN_BPS must be below 10000')
   if (config.gatewayMode === 'fixture' && !config.fixtureBaseUrl) {
     throw new Error('Fixture gateway mode requires FIXTURE_BASE_URL')
   }

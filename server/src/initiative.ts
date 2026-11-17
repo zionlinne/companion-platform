@@ -2,7 +2,8 @@ import type { AppConfig } from './config.ts'
 import { gatewayConfigured } from './config.ts'
 import { many, one, run, withTx, type SqlDb } from './db.ts'
 import { streamCompletion } from './gateway.ts'
-import { newId, nowIso } from './http.ts'
+import { HttpError, newId, nowIso } from './http.ts'
+import { abortBill, closeBill, openBill } from './wallet.ts'
 import type { Logger } from './log.ts'
 import { assembleInitiativePrompt, costMicroUsd, type PersonaCard } from './prompt.ts'
 import type { GrantRow, InitiativeSettingsRow } from './types.ts'
@@ -130,7 +131,9 @@ export async function tickInitiative(
     }
     const prompt = assembleInitiativePrompt({ persona, granted: fields })
     let content = ''
+    const billId = `initiative:${runId}`
     try {
+      await openBill(db, config, userId, billId)
       const result = await streamCompletion(config, {
         model: 'deepseek-flash',
         messages: prompt.messages,
@@ -214,11 +217,26 @@ export async function tickInitiative(
           runId
         )
       })
+      try {
+        await closeBill(db, config, {
+          userId,
+          requestId: billId,
+          kind: 'initiative',
+          model: 'deepseek-flash',
+          promptTokens: result.promptTokens,
+          completionTokens: result.completionTokens,
+          source: result.source,
+        })
+      } catch {
+        await abortBill(db, userId, billId)
+      }
       results.push({ status: 'sent', eventId: candidate.event_id, messageId: assistantId })
     } catch (error) {
-      await run(db, `UPDATE initiative_runs SET status = 'error' WHERE id = ?`, runId)
+      await abortBill(db, userId, billId)
+      const skipped = error instanceof HttpError && error.code === 'insufficient_balance'
+      await run(db, `UPDATE initiative_runs SET status = ? WHERE id = ?`, skipped ? 'skipped_balance' : 'error', runId)
       log.error('initiative_failed', { code: error instanceof Error ? error.name : 'error' })
-      results.push({ status: 'error', eventId: candidate.event_id, reason: 'provider_error' })
+      results.push({ status: 'error', eventId: candidate.event_id, reason: skipped ? 'skipped_balance' : 'provider_error' })
     }
   }
   if (!results.length) return { status: 'skipped', reason: 'nothing_to_send' }

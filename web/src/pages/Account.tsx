@@ -93,6 +93,7 @@ function SettingsPage() {
         }}>导出我的数据</button>
         <Link to="/notifications">通知</Link>
         <Link to="/privacy">隐私说明</Link>
+        <Link to="/recharge">充值</Link>
         {user?.role === 'admin' ? <Link to="/admin">管理</Link> : null}
       </div>
       {user?.role === 'user' ? (
