@@ -31,8 +31,9 @@ function WorkspaceHome() {
   }, [])
   return (
     <main className="page">
+      <p className="eyebrow">工作</p>
       <h1>工作区</h1>
-      <p className="muted">这里的对话、项目和文件不会自动进入陪伴角色的上下文。</p>
+      <p className="lede">这里的对话、项目和文件不会自动进入陪伴角色的上下文。</p>
       <div className="row">
         <button className="primary" type="button" onClick={async () => {
           const created = await api<{ conversation: Conversation }>('/api/conversations', { body: { space: 'workspace' } })
@@ -66,6 +67,7 @@ function TimelinePage() {
   useEffect(() => { void load() }, [])
   return (
     <main className="page">
+      <p className="eyebrow">工作区</p>
       <h1>时间线</h1>
       <p className="muted">陪伴角色默认不能读取这些记录。需要到授权页勾选具体字段。</p>
       <form className="panel" onSubmit={async (event: FormEvent) => {
@@ -105,6 +107,7 @@ function ProjectsPage() {
   useEffect(() => { void load() }, [])
   return (
     <main className="page">
+      <p className="eyebrow">工作区</p>
       <h1>项目和任务</h1>
       <form className="panel" onSubmit={async (event: FormEvent) => {
         event.preventDefault()
@@ -115,7 +118,9 @@ function ProjectsPage() {
         <label>项目名<input value={name} onChange={(event) => setName(event.target.value)} /></label>
         <button className="primary" type="submit">创建项目</button>
       </form>
-      {projects.map((project) => <p key={project.id}>{project.name}</p>)}
+      <div className="stack">
+        {projects.map((project) => <article className="panel" key={project.id}><strong>{project.name}</strong>{project.summary ? <p className="muted">{project.summary}</p> : null}</article>)}
+      </div>
       <form className="panel" onSubmit={async (event: FormEvent) => {
         event.preventDefault()
         if (!projectId) return
@@ -157,6 +162,7 @@ function GrantsPage() {
   useEffect(() => { void load() }, [])
   return (
     <main className="page">
+      <p className="eyebrow">工作区</p>
       <h1>时间线授权</h1>
       <p className="muted">只读、可撤销。每次读取都会留下审计。陪伴角色不能修改工作区。</p>
       <form className="panel" onSubmit={async (event: FormEvent) => {

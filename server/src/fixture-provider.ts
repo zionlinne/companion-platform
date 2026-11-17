@@ -72,7 +72,7 @@ export function startFixture(): Promise<{ url: string; state: FixtureState; clos
       if (reply.reasoning) {
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reply.reasoning } }] })}\n\n`)
       }
-      const pieces = reply.content.match(/.{1,8}/g) ?? ['']
+      const pieces = reply.content.match(/[\s\S]{1,8}/g) ?? ['']
       for (const piece of pieces) {
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`)
       }

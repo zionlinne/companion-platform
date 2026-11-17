@@ -1,6 +1,6 @@
 export const zh = {
   welcomeMessageChat250808: '今天有什么可以帮到你？',
-  contentCaveat: '内容由 AI 生成，请仔细甄别',
+  contentCaveat: '请核对回复。联网搜索和语音没有接入，不能当成已经可用。',
   expandSiderbarButton: '打开边栏',
   collapseSiderbarButton: '收起边栏',
   newChat: '开启新对话',
@@ -133,8 +133,8 @@ export const zh = {
   chatInputPlaceholderChat: '请输入消息',
   deactivatedThinkTooltip: '先思考后回答，解决推理问题',
   thinkingSwitch: '深度思考',
-  deactivatedSearchTooltip: '按需搜索网页',
-  search: '智能搜索',
+  deactivatedSearchTooltip: '联网搜索没有接入，不能当成已经可用。',
+  search: '搜索未接入',
   uploadFile: '上传文件',
   chatInputStopButtonTooltip: '停止生成',
   uploadMaxMBSize: '单个文件大小超过限制（{size}MB），请调整后重试',

@@ -9,8 +9,8 @@ android {
         applicationId "app.deepcompanion.shell"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName trialOrigin ? "0.1.0-memory" : "0.1.0-debug"
+        versionCode 3
+        versionName trialOrigin ? "0.1.1-visual" : "0.1.0-debug"
         buildConfigField "String", "TRIAL_ORIGIN", "\"${trialOrigin}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
