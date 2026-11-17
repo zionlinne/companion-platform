@@ -424,3 +424,134 @@ test('missing provider key fails closed and data survives a process restart', as
     await closed.close()
   }
 })
+
+test('memory package round trip stays on one character and persona templates stay separate', async () => {
+  const { app, adminCookie } = await boot()
+  try {
+    const owner = await register(app, await invite(app, adminCookie), 'owner-memory@example.com')
+    const other = await register(app, await invite(app, adminCookie), 'other-memory@example.com')
+    const templates = await api(app.baseUrl, 'GET', '/api/persona-templates', { cookie: owner.cookie })
+    assert.equal(templates.status, 200)
+    assert.equal(templates.json.templates.length, 2)
+    assert.equal(templates.json.templates.every((item: { example: boolean }) => item.example), true)
+    const daily = templates.json.templates.find((item: { id: string }) => item.id === 'daily-companion')
+    const created = await api(app.baseUrl, 'POST', '/api/characters', {
+      cookie: owner.cookie,
+      body: { ...daily.character, name: '我的陪伴' },
+    })
+    assert.equal(created.status, 201)
+    const characterId = created.json.character.id as string
+    const edited = await api(app.baseUrl, 'PATCH', `/api/characters/${characterId}`, {
+      cookie: owner.cookie,
+      body: { style: '改成更短的句子' },
+    })
+    assert.equal(edited.json.character.style, '改成更短的句子')
+    const copied = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/copy`, { cookie: owner.cookie, body: {} })
+    assert.equal(copied.status, 201)
+    assert.equal(copied.json.character.name, '我的陪伴 副本')
+    const card = await api(app.baseUrl, 'GET', `/api/characters/${characterId}/export`, { cookie: owner.cookie })
+    assert.equal(card.json.kind, 'companion-platform-character')
+    assert.equal(card.json.memories, undefined)
+    assert.equal(card.json.character.style, '改成更短的句子')
+    assert.equal(JSON.stringify(card.json).includes('COMPANION_MEMORY'), false)
+    const mixed = await api(app.baseUrl, 'POST', '/api/characters/import', {
+      cookie: owner.cookie,
+      body: { ...card.json, memories: [{ content: '不该进人格' }] },
+    })
+    assert.equal(mixed.status, 400)
+    assert.equal(mixed.json.error.code, 'memory_mixed_into_persona')
+    const imported = await api(app.baseUrl, 'POST', '/api/characters/import', { cookie: owner.cookie, body: card.json })
+    assert.equal(imported.status, 201)
+    assert.notEqual(imported.json.character.id, characterId)
+    assert.equal(imported.json.character.identity, daily.character.identity)
+    const importedMemories = await api(app.baseUrl, 'GET', `/api/characters/${imported.json.character.id}/memories`, { cookie: owner.cookie })
+    assert.equal(importedMemories.json.memories.length, 0)
+
+    const pack = {
+      kind: 'companion-platform-memory-package',
+      version: 1,
+      memories: [{
+        category: 'event',
+        content: 'PACKAGE_EVENT_KEEP',
+        source: '旧日记',
+        explicit: false,
+        note: '年份不确定',
+        createdAt: '2024-05-01T00:00:00.000Z',
+        updatedAt: '2024-05-02T00:00:00.000Z',
+      }],
+    }
+    const preview = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/preview`, {
+      cookie: owner.cookie,
+      body: { format: 'package', text: JSON.stringify(pack) },
+    })
+    assert.equal(preview.json.written, false)
+    assert.equal(preview.json.items[0].explicit, false)
+    assert.equal(preview.json.items[0].source, '旧日记')
+    assert.equal(preview.json.items[0].note, '年份不确定')
+    assert.equal(preview.json.items[0].createdAt, '2024-05-01T00:00:00.000Z')
+    const before = await api(app.baseUrl, 'GET', `/api/characters/${characterId}/memories`, { cookie: owner.cookie })
+    assert.equal(before.json.memories.length, 0)
+    const committed = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/commit`, {
+      cookie: owner.cookie,
+      body: { previewId: preview.json.previewId, tempIds: [preview.json.items[0].tempId] },
+    })
+    assert.equal(committed.status, 201)
+    assert.equal(committed.json.memories[0].explicit, false)
+    assert.equal(committed.json.memories[0].createdAt, '2024-05-01T00:00:00.000Z')
+    assert.equal(committed.json.memories[0].note, '年份不确定')
+    const exported = await api(app.baseUrl, 'GET', `/api/characters/${characterId}/memories/export`, { cookie: owner.cookie })
+    assert.equal(exported.json.kind, 'companion-platform-memory-package')
+    assert.equal(exported.json.character, undefined)
+    assert.equal(exported.json.memories[0].content, 'PACKAGE_EVENT_KEEP')
+    assert.equal(exported.json.memories[0].source, '旧日记')
+    assert.equal(exported.json.memories[0].explicit, false)
+    assert.equal(exported.json.memories[0].createdAt, '2024-05-01T00:00:00.000Z')
+    const again = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/preview`, {
+      cookie: owner.cookie,
+      body: { format: 'package', text: JSON.stringify(exported.json) },
+    })
+    assert.equal(again.json.items.length, 0)
+    assert.equal(again.json.duplicates.length, 1)
+    const replay = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/commit`, {
+      cookie: owner.cookie,
+      body: { previewId: again.json.previewId, tempIds: again.json.duplicates.map((item: { tempId: string }) => item.tempId) },
+    })
+    assert.equal(replay.status, 201)
+    assert.equal(replay.json.memories.length, 0)
+    const still = await api(app.baseUrl, 'GET', `/api/characters/${characterId}/memories`, { cookie: owner.cookie })
+    assert.equal(still.json.memories.filter((item: { content: string }) => item.content === 'PACKAGE_EVENT_KEEP').length, 1)
+    const cardAsMemory = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/preview`, {
+      cookie: owner.cookie,
+      body: { format: 'package', text: JSON.stringify(card.json) },
+    })
+    assert.equal(cardAsMemory.status, 422)
+    assert.equal(cardAsMemory.json.error.code, 'character_card_not_memory')
+    const adapter = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/preview`, {
+      cookie: owner.cookie,
+      body: { format: 'chatgpt', text: '{"mapping":{}}' },
+    })
+    assert.equal(adapter.status, 422)
+    assert.equal(adapter.json.error.code, 'adapter_not_implemented')
+
+    const deniedExport = await api(app.baseUrl, 'GET', `/api/characters/${characterId}/memories/export`, { cookie: other.cookie })
+    assert.equal(deniedExport.status, 404)
+    const deniedPreview = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/preview`, {
+      cookie: other.cookie,
+      body: { format: 'package', text: JSON.stringify(exported.json) },
+    })
+    assert.equal(deniedPreview.status, 404)
+    const fresh = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/preview`, {
+      cookie: owner.cookie,
+      body: { format: 'txt', text: 'event: 只属于原主人' },
+    })
+    const deniedCommit = await api(app.baseUrl, 'POST', `/api/characters/${characterId}/memories/import/commit`, {
+      cookie: other.cookie,
+      body: { previewId: fresh.json.previewId, tempIds: [fresh.json.items[0].tempId] },
+    })
+    assert.equal(deniedCommit.status, 404)
+    const otherList = await api(app.baseUrl, 'GET', '/api/characters', { cookie: other.cookie })
+    assert.equal(otherList.json.characters.length, 0)
+  } finally {
+    await app.close()
+  }
+})

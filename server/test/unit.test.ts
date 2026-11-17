@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { inQuietHours } from '../src/initiative.ts'
 import { createLogger } from '../src/log.ts'
-import { dedupeImports, parseMemoryImport } from '../src/memory-import.ts'
+import { dedupeImports, memoryPackage, parseMemoryImport } from '../src/memory-import.ts'
 import { loadConfig } from '../src/config.ts'
 import { hashPassword, verifyPassword } from '../src/password.ts'
 import { assembleCompanionPrompt, assembleWorkspacePrompt, costMicroUsd, PROMPT_LIMITS } from '../src/prompt.ts'
@@ -69,14 +69,30 @@ test('memory import parses formats, keeps uncertainty, and dedupes', () => {
   assert.equal(text[1].explicit, false)
   const markdown = parseMemoryImport('md', '## relationship\n- 朋友')
   assert.equal(markdown[0].category, 'relationship')
-  const chatgpt = parseMemoryImport('chatgpt', JSON.stringify({ mapping: { a: { message: { content: { parts: ['来自导出'] } } } } }))
-  assert.equal(chatgpt[0].explicit, false)
-  assert.equal(chatgpt[0].source, 'chatgpt-export')
+  const packed = memoryPackage([{
+    category: 'event',
+    content: '见面',
+    source: '旧日记',
+    explicit: false,
+    note: '年份不确定',
+    createdAt: '2024-05-01T00:00:00.000Z',
+    updatedAt: '2024-05-02T00:00:00.000Z',
+  }])
+  const roundTrip = parseMemoryImport('package', JSON.stringify(packed))
+  assert.equal(roundTrip[0].explicit, false)
+  assert.equal(roundTrip[0].source, '旧日记')
+  assert.equal(roundTrip[0].note, '年份不确定')
+  assert.equal(roundTrip[0].createdAt, '2024-05-01T00:00:00.000Z')
+  assert.equal(roundTrip[0].updatedAt, '2024-05-02T00:00:00.000Z')
+  assert.throws(() => parseMemoryImport('package', JSON.stringify({ kind: 'companion-platform-character', character: { name: 'A' } })), /character_card_not_memory/)
+  assert.throws(() => parseMemoryImport('chatgpt', '{"mapping":{}}'), /adapter_not_implemented/)
+  assert.throws(() => parseMemoryImport('gemini', '{}'), /adapter_not_implemented/)
+  assert.throws(() => parseMemoryImport('deepseek', '{"messages":[]}'), /adapter_not_implemented/)
   assert.throws(() => parseMemoryImport('deepseek', '{"export_format_version":3}'), /deepseek_zip_not_supported/)
   const split = dedupeImports(
     [
-      { tempId: 'a', category: 'fact', content: '喜欢茶', source: 'x', explicit: true, note: '' },
-      { tempId: 'b', category: 'fact', content: '新的', source: 'x', explicit: true, note: '' },
+      { tempId: 'a', category: 'fact', content: '喜欢茶', source: 'x', explicit: true, note: '', createdAt: null, updatedAt: null },
+      { tempId: 'b', category: 'fact', content: '新的', source: 'x', explicit: true, note: '', createdAt: null, updatedAt: null },
     ],
     [{ category: 'fact', content: '喜欢茶' }]
   )

@@ -90,6 +90,9 @@ button.ghost { background: transparent; border: 1px solid #d9d2c5; border-radius
 .ds-markdown { overflow-wrap: anywhere; }
 .ds-markdown pre { overflow: auto; background: #1c1915; color: #f4f1ea; padding: 12px; border-radius: 12px; }
 .cp-toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #1c1915; color: white; padding: 8px 12px; border-radius: 999px; z-index: 5; }
+.example-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 999px; background: #efe6d6; font-size: 12px; }
+.export-block { white-space: pre-wrap; overflow: auto; background: #1c1915; color: #f4f1ea; padding: 12px; border-radius: 12px; }
+.import-item { align-items: flex-start; }
 
 @media (max-width: 720px) {
   h1 { font-size: 28px; }

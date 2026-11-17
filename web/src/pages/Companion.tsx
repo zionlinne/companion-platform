@@ -23,6 +23,7 @@ type Memory = {
   content: string
   source: string
   explicit: boolean
+  note: string
   status: string
   createdAt: string
   updatedAt: string
@@ -92,9 +93,15 @@ function PersonaPage() {
   const navigate = useNavigate()
   const [form, setForm] = useState(empty)
   const [models, setModels] = useState<Array<{ id: string }>>([])
+  const [templates, setTemplates] = useState<Array<{ id: string; title: string; notice: string; character: typeof empty }>>([])
+  const [cardText, setCardText] = useState('')
+  const [importText, setImportText] = useState('')
   const [error, setError] = useState('')
   useEffect(() => {
     void api<{ models: Array<{ id: string }> }>('/api/models').then((data) => setModels(data.models))
+    if (!characterId) {
+      void api<{ templates: Array<{ id: string; title: string; notice: string; character: typeof empty }> }>('/api/persona-templates').then((data) => setTemplates(data.templates))
+    }
     if (!characterId) return
     void api<{ character: Character }>(`/api/characters/${characterId}`).then((data) => setForm({
       name: data.character.name,
@@ -134,6 +141,25 @@ function PersonaPage() {
     <main className="page">
       <h1>{characterId ? '编辑人格' : '新建角色'}</h1>
       <p className="muted">这些字段是人格卡。长期事实、事件和关系请写在记忆页，不要堆进这里。</p>
+      {!characterId ? (
+        <section className="panel">
+          <h2>示例模板</h2>
+          <p className="muted" data-testid="template-example-notice">{templates[0]?.notice ?? '这些是本产品的示例，不是官方角色，也不是模板市场。'}</p>
+          <div className="row">
+            {templates.map((template) => (
+              <button
+                className="ghost"
+                type="button"
+                key={template.id}
+                data-testid={`template-${template.id}`}
+                onClick={() => setForm(template.character)}
+              >
+                <span className="example-tag">示例</span> {template.title}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {error ? <p className="error">{error}</p> : null}
       <form className="panel" onSubmit={(event) => void save(event)}>
         <label>名称<input data-testid="character-name" value={form.name} onChange={(event) => set('name', event.target.value)} /></label>
@@ -162,7 +188,27 @@ function PersonaPage() {
             await api(`/api/characters/${characterId}`, { method: 'DELETE', body: {} })
             navigate('/companion')
           }}>删除</button> : null}
+          {characterId ? <button className="ghost" type="button" data-testid="export-character" onClick={async () => {
+            const card = await api<unknown>(`/api/characters/${characterId}/export`)
+            setCardText(JSON.stringify(card, null, 2))
+          }}>导出人格卡</button> : null}
         </div>
+      </form>
+      {cardText ? <pre className="export-block" data-testid="character-card-text">{cardText}</pre> : null}
+      <form className="panel" onSubmit={async (event) => {
+        event.preventDefault()
+        setError('')
+        try {
+          const created = await api<{ character: Character }>('/api/characters/import', { body: JSON.parse(importText) as unknown })
+          navigate(`/companion/${created.character.id}`)
+        } catch (caught) {
+          setError(caught instanceof ApiError ? caught.message : '人格卡无法导入')
+        }
+      }}>
+        <h2>导入人格卡</h2>
+        <p className="muted">只接受本产品的人格卡。记忆包会被拒绝，不会写进人格字段。</p>
+        <label>人格卡 JSON<textarea data-testid="character-import-text" value={importText} onChange={(event) => setImportText(event.target.value)} /></label>
+        <button className="ghost" type="submit">导入为新角色</button>
       </form>
     </main>
   )
@@ -176,9 +222,14 @@ function MemoriesPage() {
   const [source, setSource] = useState('手动')
   const [category, setCategory] = useState('fact')
   const [explicit, setExplicit] = useState(true)
-  const [format, setFormat] = useState('json')
+  const [format, setFormat] = useState('package')
   const [text, setText] = useState('')
-  const [preview, setPreview] = useState<{ previewId: string; items: Array<{ tempId: string; content: string; explicit: boolean; note: string }> } | null>(null)
+  const [exported, setExported] = useState('')
+  const [preview, setPreview] = useState<{
+    previewId: string
+    items: Array<{ tempId: string; category: string; content: string; source: string; explicit: boolean; note: string; createdAt: string | null; updatedAt: string | null }>
+    duplicates: Array<{ tempId: string; category: string; content: string }>
+  } | null>(null)
   const [picked, setPicked] = useState<string[]>([])
   const [error, setError] = useState('')
 
@@ -220,6 +271,7 @@ function MemoriesPage() {
             <strong>{memory.category}</strong> {memory.explicit ? '明确' : '未标为明确事实'}
             <p>{memory.content}</p>
             <p className="muted">来源 {memory.source} · 创建 {memory.createdAt} · 更新 {memory.updatedAt}</p>
+            {memory.note ? <p className="muted">备注 {memory.note}</p> : null}
             <button className="ghost" type="button" onClick={async () => { await api(`/api/memories/${memory.id}`, { method: 'DELETE', body: {} }); await load() }}>删除</button>
           </article>
         ))}
@@ -232,38 +284,52 @@ function MemoriesPage() {
         </article>
       ))}
       <h2>导入预览</h2>
+      <p className="muted" data-testid="adapters-unimplemented">ChatGPT、Gemini、DeepSeek 历史迁移适配器未实现。DeepSeek ZIP 不会被导入。下面四种文本格式和本产品记忆包可以预览，确认后才写入这个角色。</p>
       <div className="panel">
+        <div className="row">
+          <button className="ghost" type="button" data-testid="memory-export" onClick={async () => {
+            const pack = await api<unknown>(`/api/characters/${characterId}/memories/export`)
+            setExported(JSON.stringify(pack, null, 2))
+          }}>导出记忆包</button>
+        </div>
+        {exported ? <pre className="export-block" data-testid="memory-export-text">{exported}</pre> : null}
         <label>格式
-          <select value={format} onChange={(event) => setFormat(event.target.value)}>
+          <select data-testid="memory-import-format" value={format} onChange={(event) => setFormat(event.target.value)}>
+            <option value="package">Memory Package</option>
             <option value="json">JSON</option>
             <option value="jsonl">JSONL</option>
             <option value="md">Markdown</option>
             <option value="txt">TXT</option>
-            <option value="chatgpt">ChatGPT 适配</option>
-            <option value="gemini">Gemini 适配</option>
-            <option value="deepseek">DeepSeek 会话 JSON</option>
           </select>
         </label>
-        <label>文本<textarea value={text} onChange={(event) => setText(event.target.value)} /></label>
-        <button className="ghost" type="button" onClick={async () => {
+        <label>文本<textarea data-testid="memory-import-text" value={text} onChange={(event) => setText(event.target.value)} /></label>
+        <button className="ghost" type="button" data-testid="memory-import-preview" onClick={async () => {
           try {
-            const result = await api<{ previewId: string; items: Array<{ tempId: string; content: string; explicit: boolean; note: string }> }>(`/api/characters/${characterId}/memories/import/preview`, { body: { format, text } })
+            const result = await api<{
+              previewId: string
+              items: Array<{ tempId: string; category: string; content: string; source: string; explicit: boolean; note: string; createdAt: string | null; updatedAt: string | null }>
+              duplicates: Array<{ tempId: string; category: string; content: string }>
+            }>(`/api/characters/${characterId}/memories/import/preview`, { body: { format, text } })
             setPreview(result)
             setPicked(result.items.map((item) => item.tempId))
             setError('')
           } catch (caught) {
+            setPreview(null)
             setError(caught instanceof ApiError ? caught.message : '无法解析')
           }
         }}>预览，先不写入</button>
         {preview ? (
           <>
             {preview.items.map((item) => (
-              <label className="check" key={item.tempId}>
+              <label className="check import-item" key={item.tempId} data-testid="import-item">
                 <input type="checkbox" checked={picked.includes(item.tempId)} onChange={(event) => setPicked((current) => event.target.checked ? [...current, item.tempId] : current.filter((id) => id !== item.tempId))} />
-                {item.content} {item.explicit ? '' : '（未标为明确事实）'}
+                <span>{item.category} · {item.content} · 来源 {item.source} {item.explicit ? '· 明确' : '· 未标为明确事实'} {item.note ? `· ${item.note}` : ''} {item.createdAt ? `· ${item.createdAt}` : ''}</span>
               </label>
             ))}
-            <button className="primary" type="button" onClick={async () => {
+            {preview.duplicates.map((item) => (
+              <p key={item.tempId} data-testid="import-duplicate">重复，不会再次写入：{item.category} · {item.content}</p>
+            ))}
+            <button className="primary" type="button" data-testid="memory-import-commit" onClick={async () => {
               await api(`/api/characters/${characterId}/memories/import/commit`, { body: { previewId: preview.previewId, tempIds: picked } })
               setPreview(null)
               await load()

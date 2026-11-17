@@ -39,7 +39,8 @@ import {
 import type { Ctx } from './http.ts'
 import { defaultInitiative, publicSettings, tickInitiative } from './initiative.ts'
 import type { Logger } from './log.ts'
-import { dedupeImports, parseMemoryImport, type ImportItem } from './memory-import.ts'
+import { dedupeImports, memoryPackage, parseMemoryImport, type ImportItem } from './memory-import.ts'
+import { PERSONA_TEMPLATES } from './persona-templates.ts'
 import { verifyPassword } from './password.ts'
 import { costMicroUsd } from './prompt.ts'
 import type {
@@ -101,6 +102,7 @@ function memoryJson(row: MemoryRow) {
     content: row.content,
     source: row.source,
     explicit: row.explicit === 1,
+    note: row.note,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -656,8 +658,8 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       for (const memory of memories) {
         run(
           ctx.db,
-          `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+          `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
           newId(),
           user.id,
           copy.id,
@@ -665,6 +667,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
           memory.content,
           `copy:${memory.id}`,
           memory.explicit,
+          memory.note,
           at,
           at
         )
@@ -673,18 +676,46 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     json(ctx.res, 201, { character: characterJson(copy) })
   })
 
+  add('GET', '/api/persona-templates', async (ctx) => {
+    requireUser(ctx)
+    json(ctx.res, 200, {
+      templates: PERSONA_TEMPLATES,
+      note: '内置示例只有这两张。没有模板市场。选择模板只是填进你自己的角色，不会和记忆写在一起。',
+    })
+  })
+
   add('GET', '/api/characters/:id/export', async (ctx) => {
     requireUser(ctx)
     const character = ownCharacter(ctx, ctx.params.id)
-    json(ctx.res, 200, { kind: 'companion-platform-character', version: 1, character: characterJson(character) })
+    const card = characterJson(character)
+    json(ctx.res, 200, {
+      kind: 'companion-platform-character',
+      version: 1,
+      character: {
+        name: card.name,
+        avatarText: card.avatarText,
+        identity: card.identity,
+        background: card.background,
+        traits: card.traits,
+        style: card.style,
+        habits: card.habits,
+        relationship: card.relationship,
+        rules: card.rules,
+        defaultModel: card.defaultModel,
+        initiativeEnabled: card.initiativeEnabled,
+      },
+    })
   })
 
   add('POST', '/api/characters/import', async (ctx) => {
     const user = requireUser(ctx)
     const body = await readJson(ctx.req)
+    if (body.kind === 'companion-platform-memory-package' || body.memories || (body.character as { memories?: unknown } | undefined)?.memories) {
+      throw new HttpError(400, 'memory_mixed_into_persona', '记忆包不能导入成人格卡。请到该角色的记忆页导入。')
+    }
     const card = (body.character ?? body) as Record<string, unknown>
     if (body.kind && body.kind !== 'companion-platform-character') {
-      throw new HttpError(400, 'unsupported_card', 'Only Companion Platform character cards can be imported')
+      throw new HttpError(400, 'unsupported_card', '只能导入 Companion Platform 人格卡')
     }
     const model = typeof card.defaultModel === 'string' ? card.defaultModel : DEFAULT_MODEL
     assertModel(model)
@@ -744,6 +775,26 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     json(ctx.res, 200, { memories: rows.map(memoryJson) })
   })
 
+  add('GET', '/api/characters/:id/memories/export', async (ctx) => {
+    const user = requireUser(ctx)
+    ownCharacter(ctx, ctx.params.id)
+    const rows = many<MemoryRow>(
+      ctx.db,
+      `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active' ORDER BY created_at ASC`,
+      ctx.params.id,
+      user.id
+    )
+    json(ctx.res, 200, memoryPackage(rows.map((row) => ({
+      category: row.category,
+      content: row.content,
+      source: row.source,
+      explicit: row.explicit === 1,
+      note: row.note,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))))
+  })
+
   add('POST', '/api/characters/:id/memories', async (ctx) => {
     const user = requireUser(ctx)
     ownCharacter(ctx, ctx.params.id)
@@ -757,14 +808,15 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       content: asString(body.content, 'content', 1, 4000),
       source: asString(body.source, 'source', 1, 200),
       explicit: body.explicit === false ? 0 : 1,
+      note: '',
       status: 'active',
       created_at: at,
       updated_at: at,
     }
     run(
       ctx.db,
-      `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '', 'active', ?, ?)`,
       row.id,
       row.user_id,
       row.character_id,
@@ -870,19 +922,21 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
         content: suggestion.content.trim().slice(0, 4000),
         source: 'model-suggestion',
         explicit: 0,
+        note: '模型建议，尚未确认，不当作明确事实。',
         status: 'suggested',
         created_at: at,
         updated_at: at,
       }
       run(
         ctx.db,
-        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'model-suggestion', 0, 'suggested', ?, ?)`,
+        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'model-suggestion', 0, ?, 'suggested', ?, ?)`,
         row.id,
         row.user_id,
         row.character_id,
         row.category,
         row.content,
+        row.note,
         at,
         at
       )
@@ -926,7 +980,18 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       items = parseMemoryImport(format, text)
     } catch (error) {
       const code = error instanceof Error ? error.message : 'unrecognized_export'
-      throw new HttpError(422, code, 'The file was not imported. DeepSeek ZIP history is not accepted by this preview.')
+      const messages: Record<string, string> = {
+        adapter_not_implemented: 'ChatGPT、Gemini 和 DeepSeek 历史适配器尚未实现，没有写入任何记忆。',
+        deepseek_zip_not_supported: 'DeepSeek 历史 ZIP 尚未支持，没有写入任何记忆。',
+        character_card_not_memory: '人格卡不能导入成记忆。',
+        persona_mixed_into_memory: '这份文件把人格和记忆写在一起，已拒绝。',
+        not_memory_package: '这不是 Companion Platform 记忆包。',
+        unsupported_package_version: '不支持的记忆包版本。',
+        unrecognized_export: '无法识别这份记忆文件，没有写入。',
+        unsupported_format: '不支持的格式，没有写入。',
+      }
+      const known = messages[code] ? code : 'unrecognized_export'
+      throw new HttpError(422, known, messages[known])
     }
     const existing = many<{ category: string; content: string }>(
       ctx.db,
@@ -960,10 +1025,19 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     )
     if (!preview || preview.character_id !== ctx.params.id) throw new HttpError(404, 'not_found', 'Not found')
     const selected = new Set(Array.isArray(body.tempIds) ? body.tempIds.filter((id) => typeof id === 'string') : [])
-    const items = (JSON.parse(preview.items_json) as ImportItem[]).filter((item) => selected.has(item.tempId))
+    const chosen = (JSON.parse(preview.items_json) as ImportItem[]).filter((item) => selected.has(item.tempId))
+    const existing = many<{ category: string; content: string }>(
+      ctx.db,
+      `SELECT category, content FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active'`,
+      ctx.params.id,
+      user.id
+    )
+    const items = dedupeImports(chosen, existing).accepted
     const at = nowIso()
     const created: MemoryRow[] = []
     for (const item of items) {
+      const createdAt = item.createdAt ?? at
+      const updatedAt = item.updatedAt ?? at
       const row: MemoryRow = {
         id: newId(),
         user_id: user.id,
@@ -972,14 +1046,15 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
         content: item.content,
         source: item.source,
         explicit: item.explicit ? 1 : 0,
+        note: item.note,
         status: 'active',
-        created_at: at,
-        updated_at: at,
+        created_at: createdAt,
+        updated_at: updatedAt,
       }
       run(
         ctx.db,
-        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
         row.id,
         row.user_id,
         row.character_id,
@@ -987,8 +1062,9 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
         row.content,
         row.source,
         row.explicit,
-        at,
-        at
+        row.note,
+        createdAt,
+        updatedAt
       )
       created.push(row)
     }

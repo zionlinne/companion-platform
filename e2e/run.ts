@@ -128,6 +128,62 @@ try {
   if (keyField !== 0) throw new Error('found a provider key field')
   const stored = await page.evaluate(() => JSON.stringify(localStorage))
   if (stored.includes('sk-test') || stored.includes('apiKey')) throw new Error(`localStorage leaked provider state: ${stored}`)
+  await page.goto(`${baseUrl}/companion/new`)
+  await page.getByTestId('template-example-notice').waitFor()
+  const notice = await page.getByTestId('template-example-notice').innerText()
+  if (!notice.includes('示例')) throw new Error(`template notice missing example mark: ${notice}`)
+  await page.getByTestId('template-daily-companion').click()
+  await page.getByTestId('character-name').fill('我的陪伴')
+  await page.getByRole('button', { name: '保存人格' }).click()
+  await page.getByTestId('export-character').waitFor()
+  await page.waitForFunction(() => (document.querySelector('[data-testid="character-identity"]') as HTMLTextAreaElement | null)?.value.includes('日常'))
+  await page.getByTestId('export-character').click()
+  const card = await page.getByTestId('character-card-text').innerText()
+  if (!card.includes('companion-platform-character')) throw new Error('character export missing kind')
+  if (card.includes('memories') || card.includes('PACKAGE_EVENT')) throw new Error('character card included memory payload')
+  await page.getByRole('link', { name: '记忆' }).click()
+  const memoryPackage = JSON.stringify({
+    kind: 'companion-platform-memory-package',
+    version: 1,
+    memories: [{
+      category: 'event',
+      content: 'PACKAGE_EVENT_KEEP',
+      source: '旧日记',
+      explicit: false,
+      note: '年份不确定',
+      createdAt: '2024-05-01T00:00:00.000Z',
+      updatedAt: '2024-05-02T00:00:00.000Z',
+    }],
+  })
+  await page.getByTestId('memory-import-text').fill(memoryPackage)
+  await page.getByTestId('memory-import-preview').click()
+  const importItem = page.getByTestId('import-item')
+  await importItem.waitFor()
+  const importText = await importItem.innerText()
+  for (const expected of ['event', '未标为明确事实', '旧日记', '年份不确定', '2024-05-01']) {
+    if (!importText.includes(expected)) throw new Error(`preview missing ${expected}: ${importText}`)
+  }
+  await page.getByTestId('memory-import-commit').click()
+  await page.getByTestId('import-item').waitFor({ state: 'detached' })
+  await page.getByTestId('memory-item').filter({ hasText: 'PACKAGE_EVENT_KEEP' }).waitFor()
+  await page.getByTestId('memory-export').click()
+  const exportedMemory = await page.getByTestId('memory-export-text').innerText()
+  if (!exportedMemory.includes('PACKAGE_EVENT_KEEP') || !exportedMemory.includes('旧日记') || !exportedMemory.includes('年份不确定')) {
+    throw new Error(`memory export lost fields: ${exportedMemory}`)
+  }
+  if (exportedMemory.includes('日常') || exportedMemory.includes('identity')) throw new Error('memory package included persona fields')
+  await page.getByTestId('memory-import-text').fill(exportedMemory)
+  await page.getByTestId('memory-import-preview').click()
+  await page.getByTestId('import-duplicate').waitFor()
+  await page.getByTestId('memory-import-commit').click()
+  await page.getByTestId('import-duplicate').waitFor({ state: 'detached' })
+  if (await page.getByTestId('memory-item').filter({ hasText: 'PACKAGE_EVENT_KEEP' }).count() !== 1) {
+    throw new Error('repeat import wrote a second memory')
+  }
+  await page.goto(`${baseUrl}/companion/new`)
+  await page.getByTestId('character-import-text').fill(card)
+  await page.getByRole('button', { name: '导入为新角色' }).click()
+  await page.waitForFunction(() => (document.querySelector('[data-testid="character-name"]') as HTMLInputElement | null)?.value === '我的陪伴')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(`${baseUrl}/`)
   await page.getByTestId('workspace-entry').waitFor()

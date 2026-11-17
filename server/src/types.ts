@@ -62,6 +62,7 @@ export type MemoryRow = {
   content: string
   source: string
   explicit: number
+  note: string
   status: MemoryStatus
   created_at: string
   updated_at: string
