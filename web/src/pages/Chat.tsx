@@ -171,7 +171,9 @@ export function ChatPage() {
         <label className="check"><input type="checkbox" checked={thinking} onChange={(event) => setThinking(event.target.checked)} />深度思考</label>
         <textarea data-testid="composer" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="写一条消息" />
         <div className="row">
-          <input type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file) }} />
+          <label className="file-input">选择文件
+            <input data-testid="attachment-file" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = '' }} />
+          </label>
           {attachmentName ? <span>{attachmentName}</span> : null}
           <button className="primary" type="button" data-testid="send" onClick={() => void send().catch((caught) => setError(caught instanceof ApiError ? caught.message : '发送失败'))}>发送</button>
         </div>

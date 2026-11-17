@@ -9,3 +9,5 @@ playwright-report/
 test-results/
 web/dist/
 .DS_Store
+*.jks
+*.keystore

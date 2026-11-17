@@ -36,4 +36,4 @@ npm start
 - 邮箱验证、重置密码、钱包、充值和支付。认证替换还没做，避免两套登录。
 - ChatGPT、Gemini、DeepSeek 历史包导入。
 - 定时、工作事件、历史跟进、日期提醒。
-- 手机安装包。
+- 公网地址。Android debug 壳见 `docs/ANDROID.md`，装上不等于能聊天。

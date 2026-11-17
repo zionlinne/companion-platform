@@ -11,15 +11,21 @@
     "migrate": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/src/cli.ts migrate",
     "admin:init": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/src/cli.ts init-admin",
     "admin:invite": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/src/cli.ts invite",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test --test-concurrency=1 server/test/*.test.ts",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test --test-concurrency=1 server/test/*.test.ts mobile/origin-policy.test.mjs",
     "typecheck": "tsc -p server/tsconfig.json && tsc -p web/tsconfig.json",
     "build": "npm run build -w web",
     "e2e": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/run.ts",
     "dev:web": "npm run dev -w web"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.6.2",
     "@types/node": "22.19.1",
     "playwright": "1.49.1",
     "typescript": "5.7.2"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2"
   }
 }
