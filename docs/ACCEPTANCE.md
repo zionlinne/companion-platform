@@ -6,7 +6,7 @@
 
 真实供应商对话这一项是 **BLOCKED**：没有获准使用的 `DEEPSEEK_API_KEY`，也没有搜索或使用任何旧密钥。`live` 模式在没有 Key 时返回 `model_gateway_unconfigured`，不插入假回复。夹具模式必须显式打开，回复带 `fixture-reply:` 或 `主动提醒：`，并在网关状态里标明 `realProvider: false`。
 
-构建和测试的原始输出在 `docs/evidence/companion-platform-logs.zip`。压缩包里的 `manifest.txt` 写明代码 commit、环境、命令和退出码。
+构建和测试的原始输出在 `docs/evidence/companion-platform-logs.zip`。压缩包里的 `manifest.txt` 绑定代码 commit `a066c9460fbbbc8e206d093682111caf7304daa8`。当时 Node v22.23.4，`npm test`、`npm run typecheck`、`npm run build`、`npm run e2e` 的退出码都是 0。这次记录没有覆盖更早的失败日志，因为这四条命令一次通过。夹具浏览器聊天不算真实模型通过。
 
 | # | 项 | 状态 | 依据 |
 | --- | --- | --- | --- |
