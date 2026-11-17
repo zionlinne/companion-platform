@@ -130,8 +130,11 @@ function scope(userId: string, characterId: string | null, space: 'companion' | 
   return { userId, space, characterId }
 }
 
-test('embedding stays lexical unless a separate embedder is configured', () => {
-  const off = loadConfig({ NODE_ENV: 'test' })
+test('local embedding is the default and an explicit off stays lexical', () => {
+  const local = loadConfig({ NODE_ENV: 'test' })
+  assert.equal(local.embeddingMode, 'local')
+  assert.deepEqual(embeddingPlan(local), { kind: 'local' })
+  const off = loadConfig({ EMBEDDING_MODE: 'off' })
   assert.equal(off.embeddingMode, 'off')
   assert.deepEqual(embeddingPlan(off), { kind: 'off', reason: 'unconfigured' })
   assert.throws(() => loadConfig({ EMBEDDING_MODE: 'deepseek' }), /EMBEDDING_MODE/)
@@ -315,6 +318,7 @@ test('correction deletes the old vector, and a ranked prompt keeps persona separ
     assert.equal(oldVector, undefined)
     const current = await selectPromptMemories(holder.db, holder.config, log, { ...scopeA, topic: '给我推荐一种适合我口味的饮品' })
     assert.equal(current.memories.some((memory) => memory.content.includes('绿茶')), false)
+    assert.equal(current.memories.some((memory) => memory.content.includes('红茶')), true)
     const active = await one<{ content: string; updated_at: string }>(holder.db, `SELECT content, updated_at FROM memories WHERE user_id = 'user-a' AND status = 'active'`)
     const prompt = assembleCompanionPrompt({
       persona: { name: '林', identity: '研究员', background: '', traits: '', style: '短句', habits: '', relationship: '', rules: '不编造' },

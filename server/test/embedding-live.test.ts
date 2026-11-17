@@ -85,6 +85,7 @@ test('real bge-small-zh embedding recalls a Chinese paraphrase and rejects distr
     const rows = [
       ['tea', 'user-a', 'char-a', TEA],
       ['juice', 'user-a', 'char-a', JUICE],
+      ['same-shape', 'user-a', 'char-a', SAME_SHAPE],
       ['coffee', 'user-a', 'char-a', COFFEE],
       ['meeting', 'user-a', 'char-a', MEETING],
       ['swim', 'user-a', 'char-a', SWIM],
@@ -141,9 +142,12 @@ test('real bge-small-zh embedding recalls a Chinese paraphrase and rejects distr
     assert.equal(found.model, 'Xenova/bge-small-zh-v1.5')
     assert.equal(found.dimensions, 512)
     assert.equal(contents.includes(TEA), true, JSON.stringify(contents))
+    assert.equal(contents.includes(SAME_SHAPE), true, JSON.stringify(contents))
     for (const distractor of [JUICE, COFFEE, MEETING, SWIM, '角色乙长期偏好绿茶', '其他用户长期偏好绿茶']) {
       assert.equal(contents.includes(distractor), false, distractor)
     }
+    const paraphrase = await selectPromptMemories(db, config, log, { userId: 'user-a', space: 'companion', characterId: 'char-a', topic: '我想喝点我平时喜欢的' })
+    assert.equal(paraphrase.memories.some((memory) => memory.content === TEA), true, JSON.stringify(paraphrase.memories))
     const again = await selectPromptMemories(db, config, log, { userId: 'user-a', space: 'companion', characterId: 'char-a', topic: DRINK })
     assert.equal(again.memories.some((memory) => memory.content === TEA), true)
     const stored = await one<{ model: string; dimensions: number; version: string }>(db, `SELECT model, dimensions, version FROM memory_embeddings WHERE memory_id = 'tea'`)
@@ -186,10 +190,88 @@ test('real bge-small-zh embedding recalls a Chinese paraphrase and rejects distr
     const oldVector = await one(db, `SELECT memory_id FROM memory_embeddings WHERE memory_id = ?`, corrected.previousId)
     assert.equal(oldVector, undefined)
     const drinkAfter = await selectPromptMemories(db, config, log, { ...scope, topic: DRINK })
-    assert.equal(drinkAfter.memories.some((memory) => memory.content === TEA), false)
+    const after = drinkAfter.memories.map((memory) => memory.content)
+    assert.equal(after.includes(BLACK), true, JSON.stringify(after))
+    assert.equal(after.includes(SAME_SHAPE), true, JSON.stringify(after))
+    assert.equal(after.includes(TEA), false, JSON.stringify(after))
+    for (const distractor of [JUICE, COFFEE, MEETING, SWIM]) {
+      assert.equal(after.includes(distractor), false, distractor)
+    }
+    const drinkAgain = await selectPromptMemories(db, config, log, { ...scope, topic: '我想喝点我平时喜欢的' })
+    assert.equal(drinkAgain.memories.some((memory) => memory.content === BLACK), true, JSON.stringify(drinkAgain.memories))
+    assert.equal(drinkAgain.memories.some((memory) => memory.content === TEA), false)
     const teaNow = await selectPromptMemories(db, config, log, { ...scope, topic: TEA_NOW })
     assert.equal(teaNow.memories.some((memory) => memory.content === BLACK), true, JSON.stringify(teaNow.memories))
     assert.equal(teaNow.memories.some((memory) => memory.content === TEA), false)
+    const code = await selectPromptMemories(db, config, log, { ...scope, topic: '我还在用 Cursor 写代码吗' })
+    assert.equal(code.memories.some((memory) => memory.content === BLACK || memory.content === TEA), false, JSON.stringify(code.memories))
+
+    const supplementBase = await applyMemoryDecision(
+      db,
+      { userId: 'user-a', space: 'companion', characterId: 'char-b' },
+      decision({ action: 'save', content: TEA }),
+      'live-supplement-base'
+    )
+    assert.equal(supplementBase.result, 'saved')
+    const supplement = await applyMemoryDecision(
+      db,
+      { userId: 'user-a', space: 'companion', characterId: 'char-b' },
+      decision({ action: 'save', content: '用户也喜欢红茶' }),
+      'live-supplement'
+    )
+    assert.equal(supplement.result, 'saved')
+    const supplemented = await selectPromptMemories(db, config, log, { userId: 'user-a', space: 'companion', characterId: 'char-b', topic: DRINK })
+    assert.equal(supplemented.memories.some((memory) => memory.content === TEA), true, JSON.stringify(supplemented.memories))
+    assert.equal(supplemented.memories.some((memory) => memory.content === '用户也喜欢红茶'), false, JSON.stringify(supplemented.memories))
+    const stillThere = await one<{ status: string }>(db, `SELECT status FROM memories WHERE id = ?`, supplement.memoryId)
+    assert.equal(stillThere?.status, 'active')
+    const baseStill = await one<{ status: string }>(db, `SELECT status FROM memories WHERE id = ?`, supplementBase.memoryId)
+    assert.equal(baseStill?.status, 'active')
+    const originalStill = await one<{ status: string }>(db, `SELECT status FROM memories WHERE id = 'other-character'`)
+    assert.equal(originalStill?.status, 'active')
+
+    await db.run(
+      `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
+       VALUES ('char-d', 'user-a', '丁', '', '研究员', '', '', '短句', '', '', '不编造', 'deepseek-flash', 0, ?, ?)`,
+      [at, at]
+    )
+    const negated = await applyMemoryDecision(
+      db,
+      { userId: 'user-a', space: 'companion', characterId: 'char-d' },
+      decision({ action: 'save', content: TEA }),
+      'live-negate-seed'
+    )
+    assert.equal(negated.result, 'saved')
+    const negation = await applyMemoryDecision(
+      db,
+      { userId: 'user-a', space: 'companion', characterId: 'char-d' },
+      decision({ action: 'expire', content: '用户已经不喝绿茶', target: '绿茶', change: 'fact_changed' }),
+      'live-negate'
+    )
+    assert.equal(negation.result, 'expired')
+    const negatedRecall = await selectPromptMemories(db, config, log, { userId: 'user-a', space: 'companion', characterId: 'char-d', topic: DRINK })
+    assert.equal(negatedRecall.memories.some((memory) => memory.content === '用户已经不喝绿茶'), true, JSON.stringify(negatedRecall.memories))
+    assert.equal(negatedRecall.memories.some((memory) => memory.content === TEA), false)
+    const negatedRain = await selectPromptMemories(db, config, log, { userId: 'user-a', space: 'companion', characterId: 'char-d', topic: '今天上海下雨了' })
+    assert.equal(negatedRain.memories.length, 0, JSON.stringify(negatedRain.memories))
+
+    const swimAsk = await selectPromptMemories(db, config, log, { ...scope, topic: '今晚有空要不要去游泳' })
+    assert.equal(swimAsk.memories.some((memory) => memory.content === SWIM), true, JSON.stringify(swimAsk.memories))
+    const meetingHit = swimAsk.memories.some((memory) => memory.content === MEETING)
+    const status = fs.readFileSync('/proc/self/status', 'utf8')
+    const peakKb = Number(/VmHWM:\s+(\d+)/.exec(status)?.[1] ?? 0)
+    const parallelStarted = Date.now()
+    await Promise.all([0, 1, 2, 3].map(() => selectPromptMemories(db, config, log, { ...scope, topic: DRINK })))
+    const afterParallel = fs.readFileSync('/proc/self/status', 'utf8')
+    const peakAfterKb = Number(/VmHWM:\s+(\d+)/.exec(afterParallel)?.[1] ?? 0)
+    console.log(JSON.stringify({
+      event: 'embedding_live_limits',
+      knownUnsolved: { query: '今晚有空要不要去游泳', meetingRecalled: meetingHit, reason: 'bge-small-zh cosine is about 0.45, above the 0.44 floor, and this query has no replaced-fact anchor' },
+      parallelMs: Date.now() - parallelStarted,
+      vmHwmKb: peakKb,
+      vmHwmAfterParallelKb: peakAfterKb,
+    }))
+    assert.equal(meetingHit, true, 'known unsolved: a meeting memory stays above 0.44 for a swimming query')
   } finally {
     setTestEmbedder(null)
     await db.close()

@@ -94,8 +94,9 @@ function priceCurrencyOf(value: string | undefined): 'unset' | 'CNY' | 'USD' {
 }
 
 function embeddingModeOf(value: string | undefined): 'off' | 'local' | 'http' {
-  if (!value || value === 'off') return 'off'
-  if (value === 'local' || value === 'http') return value
+  if (value === 'off') return 'off'
+  if (!value || value === 'local') return 'local'
+  if (value === 'http') return 'http'
   throw new Error('EMBEDDING_MODE must be off, local, or http')
 }
 

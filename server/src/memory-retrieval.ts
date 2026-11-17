@@ -2,6 +2,7 @@ import type { AppConfig } from './config.ts'
 import { one, run, type SqlDb } from './db.ts'
 import {
   activeEmbedder,
+  averageVectors,
   contentHash,
   cosine,
   decodeVector,
@@ -139,13 +140,38 @@ async function rankSemantic(
 async function readCurrent(db: SqlDb, embedder: Embedder, row: MemoryRow): Promise<Float32Array | null> {
   const stored = await one<StoredVector>(db, `SELECT * FROM memory_embeddings WHERE memory_id = ?`, row.id)
   if (!stored || stored.version !== embedder.version || stored.model !== embedder.model) return null
-  if (stored.content_hash !== contentHash(embedder.version, row.content)) return null
+  if (stored.content_hash !== (await indexHash(db, embedder, row))) return null
   return decodeVector(stored.vector_base64, stored.dimensions)
 }
 
+async function predecessorContent(db: SqlDb, row: MemoryRow): Promise<string | null> {
+  if (!row.supersedes_id) return null
+  const prior = await one<{ content: string }>(
+    db,
+    `SELECT content FROM memories WHERE id = ? AND user_id = ?`,
+    row.supersedes_id,
+    row.user_id
+  )
+  const content = prior?.content?.trim()
+  return content ? content : null
+}
+
+async function indexHash(db: SqlDb, embedder: Embedder, row: MemoryRow): Promise<string> {
+  const prior = await predecessorContent(db, row)
+  return contentHash(embedder.version, prior ? `${row.content}\n${prior}` : row.content)
+}
+
 async function writeVector(db: SqlDb, embedder: Embedder, row: MemoryRow, signal: AbortSignal): Promise<Float32Array> {
-  const hash = contentHash(embedder.version, row.content)
-  const vector = await embedder.embed(row.content, 'passage', signal)
+  const prior = await predecessorContent(db, row)
+  const hash = contentHash(embedder.version, prior ? `${row.content}\n${prior}` : row.content)
+  const own = await embedder.embed(row.content, 'passage', signal)
+  let vector = own
+  if (prior) {
+    // Average the new passage with the replaced one. Concatenating the two sentences
+    // matched an unrelated coding query; the averaged vectors did not.
+    const previous = await embedder.embed(prior, 'passage', signal)
+    if (previous.length === own.length) vector = averageVectors(own, previous)
+  }
   await run(
     db,
     `INSERT INTO memory_embeddings (memory_id, model, dimensions, version, content_hash, vector_base64, updated_at)

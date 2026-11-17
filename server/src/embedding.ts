@@ -5,7 +5,7 @@ import type { AppConfig } from './config.ts'
 
 export const LOCAL_EMBEDDING_MODEL = 'Xenova/bge-small-zh-v1.5'
 export const LOCAL_EMBEDDING_DIMENSIONS = 512
-export const LOCAL_EMBEDDING_VERSION = 'bge-small-zh-v1.5-q8-query-prefix-v1'
+export const LOCAL_EMBEDDING_VERSION = 'bge-small-zh-v1.5-q8-query-prefix-v2'
 const QUERY_PREFIX = '为这个句子生成表示以用于检索相关文章：'
 const MAX_DIMENSIONS = 4096
 
@@ -69,6 +69,13 @@ export function normalizeVector(vector: Float32Array): Float32Array {
   if (!norm) return out
   for (let index = 0; index < vector.length; index += 1) out[index] = vector[index] / norm
   return out
+}
+
+export function averageVectors(left: Float32Array, right: Float32Array): Float32Array {
+  const length = Math.min(left.length, right.length)
+  const summed = new Float32Array(length)
+  for (let index = 0; index < length; index += 1) summed[index] = left[index] + right[index]
+  return normalizeVector(summed)
 }
 
 export function cosine(left: Float32Array, right: Float32Array): number {
