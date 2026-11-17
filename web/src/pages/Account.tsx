@@ -31,6 +31,7 @@ function SettingsPage() {
   }, [])
   return (
     <main className="page">
+      <p className="eyebrow">偏好</p>
       <h1>设置</h1>
       <form className="panel" onSubmit={async (event: FormEvent) => {
         event.preventDefault()
@@ -90,7 +91,9 @@ function SettingsPage() {
           link.click()
           URL.revokeObjectURL(url)
         }}>导出我的数据</button>
+        <Link to="/notifications">通知</Link>
         <Link to="/privacy">隐私说明</Link>
+        {user?.role === 'admin' ? <Link to="/admin">管理</Link> : null}
       </div>
       {user?.role === 'user' ? (
         <form className="panel" onSubmit={async (event: FormEvent) => {
@@ -117,6 +120,7 @@ function NotificationsPage() {
   useEffect(() => { void load() }, [])
   return (
     <main className="page">
+      <p className="eyebrow">应用内</p>
       <h1>通知</h1>
       <p className="muted">目前只有应用内通知。没有手机推送。</p>
       {items.map((item) => (
@@ -134,6 +138,7 @@ function NotificationsPage() {
 function PrivacyPage() {
   return (
     <main className="page">
+      <p className="eyebrow">D/</p>
       <h1>隐私说明</h1>
       <div className="panel stack">
         <p>Deep Companion 把账号、角色、记忆、工作区和对话存在本服务的数据库里。会话使用 HttpOnly Cookie，不把登录态放在浏览器本地变量里冒充账号。D/ 是本产品的文字标识，不是 DeepSeek 官方标志。</p>
@@ -160,6 +165,7 @@ function AdminPage() {
   if (user && user.role !== 'admin') return <Navigate to="/" replace />
   return (
     <main className="page">
+      <p className="eyebrow">管理员</p>
       <h1>管理</h1>
       <p className="muted">首批建议发放 10–20 个邀请码。验证码明文只在创建时出现一次。</p>
       {error ? <p className="error">{error}</p> : null}

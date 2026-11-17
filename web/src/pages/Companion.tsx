@@ -44,6 +44,33 @@ const statusLabel: Record<string, string> = {
   uncertain: '不确定',
 }
 
+function when(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+const categoryLabel: Record<string, string> = {
+  persona: '人格',
+  fact: '事实',
+  event: '事件',
+  relationship: '关系',
+  preference: '偏好',
+  habit: '习惯',
+  experience: '经历',
+  plan: '计划',
+  shared_event: '共同事件',
+  topic: '话题',
+  open_item: '未完成',
+  background: '背景',
+}
+
 const empty = {
   name: '',
   avatarText: '',
@@ -87,8 +114,11 @@ function CharacterList() {
   }, [])
   return (
     <main className="page">
-      <div className="row">
-        <h1>陪伴</h1>
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">角色</p>
+          <h1>陪伴</h1>
+        </div>
         {quota.used < quota.limit ? <Link className="primary" to="/companion/new">新建角色</Link> : <span>已满额，删除后才能新建</span>}
       </div>
       <p className="muted" data-testid="companion-quota">每个账号 {quota.used}/{quota.limit} 个 Companion。人格卡不是长期记忆，删除后名额会释放。</p>
@@ -96,9 +126,14 @@ function CharacterList() {
       {status === 'error' ? <p className="error">{error}</p> : null}
       <div className="stack">
         {characters.map((character) => (
-          <div className="panel" key={character.id}>
-            <strong>{character.avatarText ? `${character.avatarText} ` : ''}{character.name}</strong>
-            <p className="muted">{character.identity || '还没有身份描述'}</p>
+          <article className="panel" key={character.id}>
+            <div className="person-id">
+              <span className="avatar">{character.avatarText || character.name.slice(0, 1) || 'D'}</span>
+              <div>
+                <strong>{character.name}</strong>
+                <p className="muted">{character.identity || '还没有身份描述'}</p>
+              </div>
+            </div>
             <div className="row">
               <Link to={`/companion/${character.id}`}>人格</Link>
               <Link to={`/companion/${character.id}/memories`}>记忆</Link>
@@ -110,7 +145,7 @@ function CharacterList() {
                 <Link key={conversation.id} to={`/companion/${character.id}/chat/${conversation.id}`}>{conversation.title}</Link>
               ))}
             </div>
-          </div>
+          </article>
         ))}
         {status === 'ready' && characters.length === 0 ? <p data-testid="empty-companions">还没有角色。可以新建，或从示例人格填入后再改成自己的。示例不会变成长期记忆。</p> : null}
       </div>
@@ -169,16 +204,17 @@ function PersonaPage() {
 
   return (
     <main className="page">
+      <p className="eyebrow">人格卡</p>
       <h1>{characterId ? '编辑人格' : '新建角色'}</h1>
-      <p className="muted">这些字段是人格卡。长期事实、事件和关系请写在记忆页，不要堆进这里。</p>
+      <p className="lede">这些字段是人格卡。长期事实、事件和关系请写在记忆页，不要堆进这里。普通聊天不会改写这张卡。</p>
       {!characterId ? (
         <section className="panel">
           <h2>示例模板</h2>
           <p className="muted" data-testid="template-example-notice">{templates[0]?.notice ?? '这些是本产品的示例，不是官方角色，也不是模板市场。'}</p>
-          <div className="row">
+          <div className="templates">
             {templates.map((template) => (
               <button
-                className="ghost"
+                className="template"
                 type="button"
                 key={template.id}
                 data-testid={`template-${template.id}`}
@@ -192,13 +228,25 @@ function PersonaPage() {
       ) : null}
       {error ? <p className="error">{error}</p> : null}
       <form className="panel" onSubmit={(event) => void save(event)}>
-        <label>名称<input data-testid="character-name" value={form.name} onChange={(event) => set('name', event.target.value)} /></label>
-        <label>文字头像<input value={form.avatarText} maxLength={8} onChange={(event) => set('avatarText', event.target.value)} /></label>
-        <label>身份<textarea data-testid="character-identity" value={form.identity} onChange={(event) => set('identity', event.target.value)} /></label>
-        <label>背景<textarea value={form.background} onChange={(event) => set('background', event.target.value)} /></label>
+        <div className="persona-hero">
+          <span className="avatar">{form.avatarText || form.name.slice(0, 1) || 'D'}</span>
+          <div>
+            <strong>{form.name || '未命名角色'}</strong>
+            <p className="muted">只在这张卡上修改身份、语气和边界。</p>
+          </div>
+        </div>
+        <p className="section-label">身份</p>
+        <div className="fields two">
+          <label>名称<input data-testid="character-name" value={form.name} onChange={(event) => set('name', event.target.value)} /></label>
+          <label>文字头像<input value={form.avatarText} maxLength={8} onChange={(event) => set('avatarText', event.target.value)} /></label>
+          <label className="span-2">身份<textarea data-testid="character-identity" value={form.identity} onChange={(event) => set('identity', event.target.value)} /></label>
+          <label className="span-2">背景<textarea value={form.background} onChange={(event) => set('background', event.target.value)} /></label>
+        </div>
+        <p className="section-label">表达</p>
         <label>特征<textarea value={form.traits} onChange={(event) => set('traits', event.target.value)} /></label>
         <label>表达风格<textarea data-testid="character-style" value={form.style} onChange={(event) => set('style', event.target.value)} /></label>
         <label>习惯<textarea value={form.habits} onChange={(event) => set('habits', event.target.value)} /></label>
+        <p className="section-label">关系与边界</p>
         <label>关系<textarea value={form.relationship} onChange={(event) => set('relationship', event.target.value)} /></label>
         <label>规则<textarea value={form.rules} onChange={(event) => set('rules', event.target.value)} /></label>
         <label>默认模型
@@ -214,7 +262,7 @@ function PersonaPage() {
             await api(`/api/characters/${characterId}/copy`, { body: { copyMemories: true } })
             navigate('/companion')
           }}>复制</button> : null}
-          {characterId ? <button className="ghost" type="button" onClick={async () => {
+          {characterId ? <button className="ghost danger" type="button" onClick={async () => {
             await api(`/api/characters/${characterId}`, { method: 'DELETE', body: {} })
             navigate('/companion')
           }}>删除</button> : null}
@@ -284,8 +332,9 @@ function MemoriesPage() {
 
   return (
     <main className="page">
+      <p className="eyebrow">长期记忆</p>
       <h1>角色记忆</h1>
-      <p className="muted">记忆和人格分开存放。普通聊天不会改人格卡。模型建议要你确认后才写入。不确定、已被替代或不再当前的记录会留在历史里，不当作当前事实。</p>
+      <p className="lede">记忆和人格分开存放。普通聊天不会改人格卡。模型建议要你确认后才写入。不确定、已被替代或不再当前的记录会留在历史里，不当作当前事实。</p>
       {error ? <p className="error">{error}</p> : null}
       <form className="panel" onSubmit={async (event) => {
         event.preventDefault()
@@ -309,9 +358,13 @@ function MemoriesPage() {
       <div className="stack">
         {memories.map((memory) => (
           <article className="panel" key={memory.id} data-testid="memory-item">
-            <strong>{memory.category}</strong> {memory.explicit ? '明确' : '未标为明确事实'}
+            <div className="row">
+              <span className="chip">{categoryLabel[memory.category] ?? memory.category}</span>
+              <span className={memory.explicit ? 'chip good' : 'chip'}>{memory.explicit ? '明确' : '未标为明确事实'}</span>
+              <span className="chip">{statusLabel[memory.status] ?? memory.status}</span>
+            </div>
             <p>{memory.content}</p>
-            <p className="muted">来源 {memory.source} · {statusLabel[memory.status] ?? memory.status} · 创建 {memory.createdAt} · 更新 {memory.updatedAt}</p>
+            <p className="muted">来源 {memory.source} · {statusLabel[memory.status] ?? memory.status} · 创建 {when(memory.createdAt)} · 更新 {when(memory.updatedAt)}</p>
             {memory.note ? <p className="muted">备注 {memory.note}</p> : null}
             <button className="ghost" type="button" onClick={async () => { await api(`/api/memories/${memory.id}`, { method: 'DELETE', body: {} }); await load() }}>删除</button>
           </article>
@@ -325,7 +378,7 @@ function MemoriesPage() {
               <article className="panel" key={memory.id}>
                 <strong>{statusLabel[memory.status] ?? memory.status}</strong>
                 <p>{memory.content}</p>
-                <p className="muted">来源 {memory.source} · 创建 {memory.createdAt}{memory.supersededBy ? ` · 替代者 ${memory.supersededBy}` : ''}</p>
+                <p className="muted">来源 {memory.source} · 创建 {when(memory.createdAt)}{memory.supersededBy ? ` · 替代者 ${memory.supersededBy}` : ''}</p>
               </article>
             ))}
           </div>
