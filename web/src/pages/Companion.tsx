@@ -32,6 +32,16 @@ type Memory = {
   status: string
   createdAt: string
   updatedAt: string
+  supersededBy?: string | null
+}
+
+const statusLabel: Record<string, string> = {
+  active: '当前',
+  suggested: '建议',
+  rejected: '已拒绝',
+  superseded: '已被替代',
+  expired: '不再当前',
+  uncertain: '不确定',
 }
 
 const empty = {
@@ -246,6 +256,7 @@ function MemoriesPage() {
   const { characterId = '' } = useParams()
   const [memories, setMemories] = useState<Memory[]>([])
   const [suggested, setSuggested] = useState<Memory[]>([])
+  const [history, setHistory] = useState<Memory[]>([])
   const [content, setContent] = useState('')
   const [source, setSource] = useState('手动')
   const [category, setCategory] = useState('fact')
@@ -264,15 +275,17 @@ function MemoriesPage() {
   async function load() {
     const active = await api<{ memories: Memory[] }>(`/api/characters/${characterId}/memories`)
     const pending = await api<{ memories: Memory[] }>(`/api/characters/${characterId}/memories?status=suggested`)
+    const trace = await api<{ memories: Memory[] }>(`/api/characters/${characterId}/memories?status=trace`)
     setMemories(active.memories)
     setSuggested(pending.memories)
+    setHistory(trace.memories.filter((memory) => memory.status !== 'active'))
   }
   useEffect(() => { void load() }, [characterId])
 
   return (
     <main className="page">
       <h1>角色记忆</h1>
-      <p className="muted">记忆和人格分开存放。模型建议要你确认后才写入。未标记为明确事实的内容不会被当成已核实事实。</p>
+      <p className="muted">记忆和人格分开存放。普通聊天不会改人格卡。模型建议要你确认后才写入。不确定、已被替代或不再当前的记录会留在历史里，不当作当前事实。</p>
       {error ? <p className="error">{error}</p> : null}
       <form className="panel" onSubmit={async (event) => {
         event.preventDefault()
@@ -298,12 +311,26 @@ function MemoriesPage() {
           <article className="panel" key={memory.id} data-testid="memory-item">
             <strong>{memory.category}</strong> {memory.explicit ? '明确' : '未标为明确事实'}
             <p>{memory.content}</p>
-            <p className="muted">来源 {memory.source} · 创建 {memory.createdAt} · 更新 {memory.updatedAt}</p>
+            <p className="muted">来源 {memory.source} · {statusLabel[memory.status] ?? memory.status} · 创建 {memory.createdAt} · 更新 {memory.updatedAt}</p>
             {memory.note ? <p className="muted">备注 {memory.note}</p> : null}
             <button className="ghost" type="button" onClick={async () => { await api(`/api/memories/${memory.id}`, { method: 'DELETE', body: {} }); await load() }}>删除</button>
           </article>
         ))}
       </div>
+      {history.length ? (
+        <>
+          <h2>历史</h2>
+          <div className="stack" data-testid="memory-history">
+            {history.map((memory) => (
+              <article className="panel" key={memory.id}>
+                <strong>{statusLabel[memory.status] ?? memory.status}</strong>
+                <p>{memory.content}</p>
+                <p className="muted">来源 {memory.source} · 创建 {memory.createdAt}{memory.supersededBy ? ` · 替代者 ${memory.supersededBy}` : ''}</p>
+              </article>
+            ))}
+          </div>
+        </>
+      ) : null}
       <h2>建议</h2>
       {suggested.map((memory) => (
         <article className="panel" key={memory.id}>

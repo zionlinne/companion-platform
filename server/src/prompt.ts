@@ -1,3 +1,5 @@
+import { relevance, retrievalScore } from './memory-text.ts'
+
 export const PROMPT_LIMITS = {
   personaChars: 4000,
   memoryCount: 12,
@@ -25,11 +27,33 @@ export type MemorySnippet = {
   source: string
   updatedAt: string
   explicit: boolean
+  status?: string
 }
 
 export type HistoryTurn = { role: 'user' | 'assistant'; content: string }
 
 const clip = (value: string, max: number) => (value.length <= max ? value : `${value.slice(0, max)}…`)
+
+export function rankMemories(memories: MemorySnippet[], topic?: string): MemorySnippet[] {
+  const current = memories.filter((memory) => (memory.status ?? 'active') === 'active')
+  const byTime = [...current].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+  if (!topic?.trim()) return byTime.slice(0, PROMPT_LIMITS.memoryCount)
+  const ranked = byTime
+    .map((memory) => ({ memory, score: retrievalScore(topic, memory.content) }))
+    .filter((item) => item.score >= 0.12)
+    .sort((a, b) => b.score - a.score || (a.memory.updatedAt < b.memory.updatedAt ? 1 : -1))
+  const kept: MemorySnippet[] = []
+  for (const item of ranked) {
+    if (kept.some((existing) => sameEnough(existing.content, item.memory.content))) continue
+    kept.push(item.memory)
+    if (kept.length >= PROMPT_LIMITS.memoryCount) break
+  }
+  return kept
+}
+
+function sameEnough(left: string, right: string): boolean {
+  return left === right || relevance(left, right) >= 0.8
+}
 
 export function personaText(card: PersonaCard): { text: string; truncated: boolean } {
   const lines = [
@@ -52,10 +76,10 @@ export function assembleCompanionPrompt(input: {
   memories: MemorySnippet[]
   history: HistoryTurn[]
   attachmentExcerpt?: string
+  topic?: string
 }): { messages: PromptMessage[]; stats: Record<string, number | boolean> } {
   const persona = personaText(input.persona)
-  const ordered = [...input.memories].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-  const kept = ordered.slice(0, PROMPT_LIMITS.memoryCount)
+  const kept = rankMemories(input.memories, input.topic)
   const memoryLines = kept.map((memory) => {
     const fact = memory.explicit ? 'explicit' : 'unconfirmed'
     return `- (${memory.category}, ${fact}, source=${memory.source}, updated=${memory.updatedAt}) ${clip(memory.content, PROMPT_LIMITS.memoryChars)}`
@@ -63,7 +87,8 @@ export function assembleCompanionPrompt(input: {
   const system = [
     'You are a companion inside Deep Companion.',
     'The persona card is a stable style and identity. It is not long-term memory.',
-    'Confirmed memories are a separate bounded list. Do not treat omitted history as if it were in this prompt.',
+    'Confirmed memories are a separate bounded list. Do not invent shared history or past events that are not written here.',
+    'Uncertain, superseded, and expired memories are not current facts.',
     'Do not claim to have read the user Workspace, private files, or unauthorized timeline events.',
     '[Persona]',
     persona.text,
@@ -84,7 +109,7 @@ export function assembleCompanionPrompt(input: {
     messages: [{ role: 'system', content: system }, ...history],
     stats: {
       memoriesIncluded: kept.length,
-      memoriesOmitted: Math.max(0, ordered.length - kept.length),
+      memoriesOmitted: Math.max(0, input.memories.length - kept.length),
       historyIncluded: history.length,
       historyOmitted: Math.max(0, input.history.length - history.length),
       personaTruncated: persona.truncated,
@@ -95,11 +120,21 @@ export function assembleCompanionPrompt(input: {
 export function assembleWorkspacePrompt(input: {
   history: HistoryTurn[]
   attachmentExcerpt?: string
+  memories?: MemorySnippet[]
+  topic?: string
 }): { messages: PromptMessage[]; stats: Record<string, number> } {
+  const kept = input.memories ? rankMemories(input.memories, input.topic) : []
+  const memoryLines = kept.map((memory) => {
+    const fact = memory.explicit ? 'explicit' : 'unconfirmed'
+    return `- (${memory.category}, ${fact}, source=${memory.source}, updated=${memory.updatedAt}) ${clip(memory.content, PROMPT_LIMITS.memoryChars)}`
+  })
   const system = [
     'You are assisting inside the user Workspace of Deep Companion.',
     'You cannot see Companion memories, Companion chats, or other users.',
-    'Do not invent workspace records that are not in the conversation.',
+    'Do not invent workspace records or companion history that are not written here.',
+    ...(input.memories
+      ? ['[Workspace memories]', memoryLines.length ? memoryLines.join('\n') : '(none)']
+      : []),
   ].join('\n')
   const history = input.history.slice(-PROMPT_LIMITS.historyMessages).map((turn) => ({
     role: turn.role,
@@ -116,6 +151,8 @@ export function assembleWorkspacePrompt(input: {
     stats: {
       historyIncluded: history.length,
       historyOmitted: Math.max(0, input.history.length - history.length),
+      memoriesIncluded: kept.length,
+      memoriesOmitted: Math.max(0, (input.memories?.length ?? 0) - kept.length),
     },
   }
 }

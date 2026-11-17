@@ -1,4 +1,16 @@
-export type MemoryCategory = 'persona' | 'fact' | 'event' | 'relationship'
+export type MemoryCategory =
+  | 'persona'
+  | 'fact'
+  | 'event'
+  | 'relationship'
+  | 'preference'
+  | 'habit'
+  | 'experience'
+  | 'plan'
+  | 'shared_event'
+  | 'topic'
+  | 'open_item'
+  | 'background'
 
 export const MEMORY_PACKAGE_KIND = 'companion-platform-memory-package'
 export const MEMORY_PACKAGE_VERSION = 1
@@ -24,7 +36,10 @@ export type PortableMemory = {
   updatedAt: string
 }
 
-const categories = new Set<MemoryCategory>(['persona', 'fact', 'event', 'relationship'])
+const categories = new Set<MemoryCategory>([
+  'persona', 'fact', 'event', 'relationship', 'preference', 'habit', 'experience',
+  'plan', 'shared_event', 'topic', 'open_item', 'background',
+])
 
 const asCategory = (value: unknown, fallback: MemoryCategory): MemoryCategory =>
   typeof value === 'string' && categories.has(value as MemoryCategory) ? (value as MemoryCategory) : fallback
@@ -152,7 +167,7 @@ function parseMarkdown(text: string): ImportItem[] {
   let category: MemoryCategory = 'fact'
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim()
-    const heading = /^#{1,3}\s+(persona|fact|event|relationship)\b/i.exec(line)
+    const heading = /^#{1,3}\s+(persona|fact|event|relationship|preference|habit|experience|plan|shared_event|topic|open_item|background)\b/i.exec(line)
     if (heading) {
       category = heading[1].toLowerCase() as MemoryCategory
       continue
@@ -175,7 +190,7 @@ function parseText(text: string): ImportItem[] {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim()
     if (!line) continue
-    const tagged = /^(persona|fact|event|relationship)\s*[:：]\s*(.+)$/i.exec(line)
+    const tagged = /^(persona|fact|event|relationship|preference|habit|experience|plan|shared_event|topic|open_item|background)\s*[:：]\s*(.+)$/i.exec(line)
     if (tagged) {
       const made = item({
         category: tagged[1].toLowerCase() as MemoryCategory,

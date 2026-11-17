@@ -12,8 +12,8 @@ debug 变体仍然保留地址选择器，只给开发者连本机服务。它�
 
 ## 可安装和可聊天是两件事
 
-- 可安装的 debug 包：`applicationId` 是 `app.deepcompanion.shell`，`versionName` 是 `0.1.0-debug`，`versionCode` 是 1。它没有预置地址，只给开发者连本机。
-- 可安装的内测包：同一个应用 id，`versionName` 是 `0.1.0-trial`，源锁定 `https://deep-companion.onrender.com`。页面和 `/api` 都由这个 Node 进程提供。供应商 Key 不在包里。
+- 可安装的 debug 包：`applicationId` 是 `app.deepcompanion.shell`，`versionName` 是 `0.1.0-debug`，`versionCode` 是 2。它没有预置地址，只给开发者连本机。
+- 可安装的记忆引擎内测包：同一个应用 id，`versionName` 是 `0.1.0-memory`，`versionCode` 是 2，源锁定 `https://deep-companion.onrender.com`。WebView 打开的是这个远程源。线上进程还没部署这份服务端时，安装包里的记忆引擎不会出现在网页上。供应商 Key 不在包里。
 - 这台环境没有手机或模拟器，所以没有把包装到设备上，也不能把打开网页说成已经在手机上聊天。没有供应商 Key 时，线上发送会失败，不会用夹具冒充。
 
 ## 地址怎么填
@@ -68,4 +68,4 @@ adb install -r deep-companion-0.1.0-debug.apk
 
 云端用的是 JDK 21、Android SDK 35/36 和 Build-Tools 35/36。没有源时 `npm run android:trial` 只检查并退出。有真实 HTTPS 源时，它先执行 `npx cap sync android`，再执行 `./gradlew assembleDebug`，把源写进 `BuildConfig.TRIAL_ORIGIN`。
 
-产物在 `android/app/build/outputs/apk/debug/app-debug.apk`。带内测源时 `versionName` 是 `0.1.0-trial`。debug 网络配置只允许回环和 `10.0.2.2` 的明文，系统证书以外的用户证书不信任。内测源是 HTTPS，不走这些明文例外。
+产物在 `android/app/build/outputs/apk/debug/app-debug.apk`。带内测源时 `versionName` 是 `0.1.0-memory`。debug 网络配置只允许回环和 `10.0.2.2` 的明文，系统证书以外的用户证书不信任。内测源是 HTTPS，不走这些明文例外。只安装这个包、不部署同版本服务端时，打开的仍是线上旧页面。
