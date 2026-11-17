@@ -1,0 +1,467 @@
+diff --git a/docs/88API.md b/docs/88API.md
+new file mode 100644
+index 0000000..649c9cc
+--- /dev/null
++++ b/docs/88API.md
+@@ -0,0 +1,45 @@
++# 88API 网关适配
++
++这是给本地交互试用的服务端适配，不是公开部署。普通用户仍然不能填写自己的 Key。密钥只放在启动进程的环境变量里。
++
++## 核对过的文档
++
++- 88API Chat Completions：<https://88api.ai/en/docs/api/chat/openai-chat/>。示例地址是 `POST https://api.88api.ai/v1/chat/completions`。`temperature` 的通用范围是 0 到 2。同一页把 `reasoning_effort` 写成 o-series 的 `low`、`medium`、`high`。
++- 88API 模型列表：<https://88api.ai/cn-models/>。当前列出 `deepseek-v4.1-flash`，调用基址是 `https://api.88api.ai/v1`。令牌是否有权调用这个模型，文档没有保证，本仓库也没有用真实令牌探测。
++- DeepSeek 思考模式：<https://api-docs.deepseek.com/guides/thinking_mode>。`reasoning_effort` 为 `low`、`high`、`max` 时打开思考。
++- DeepSeek Chat Completions：<https://api-docs.deepseek.com/api/create-chat-completion>。`temperature` 范围是 0 到 2，并写明思考模式下没有效果。`none` 才关闭思考。
++
++因此默认请求只带 `reasoning_effort: "low"`，不带 `temperature`，也不带 `thinking`。不能把最高温度和 low 思考说成同时生效。只有把 `REASONING_EFFORT` 设为 `none` 时才会发送 `TEMPERATURE`。`medium` 会被拒绝，避免把 88API 通用页上的 o-series 示例悄悄映射成别的档位。
++
++## 给 07ec01e 手测目录的 Windows 替换
++
++用户电脑上的固定版本是 `07ec01ebd59b2e5da026b5d30582baf4f1caa11b`。不要把账户和钱包那一版覆盖上去，也不要替换数据库、`.env`、密钥或 `node_modules`。没有新增 npm 依赖。
++
++先停掉正在运行的服务。在该提交的目录里，只替换这些文件：
++
++- `server/src/upstream-request.ts`（新文件）
++- `server/src/gateway.ts`
++- `server/src/config.ts`
++- `server/src/create-app.ts`（只增加网关状态里的非密钥字段）
++- `server/test/upstream-request.test.ts`（新文件）
++- `docs/88API.md`
++
++对应补丁和文件包在 `docs/patches/`。补丁的父提交就是 `07ec01e`。账户钱包分支另外保留了同一套请求拼接。
++
++在原来的目录打开 PowerShell，变量名和试用值如下。Key 只是占位，换成你自己的 88API 令牌，不要写进仓库：
++
++```powershell
++$env:MODEL_GATEWAY_MODE = "live"
++$env:DEEPSEEK_BASE_URL = "https://api.88api.ai/v1"
++$env:DEEPSEEK_API_KEY = "sk-replace-with-your-88api-token"
++$env:DEEPSEEK_MODEL = "deepseek-v4.1-flash"
++$env:REASONING_EFFORT = "low"
++$env:TEMPERATURE = "2"
++npm start
++```
++
++`TEMPERATURE=2` 会被读入并校验，但在 `REASONING_EFFORT=low` 时不会放进上游 JSON。页面上的思考开关也不再额外添加 `thinking` 或 `temperature`。`/api/gateway` 会返回 `sampling: "thinking-temperature-omitted"`，并且不返回密钥。
++
++没有 `DEEPSEEK_API_KEY` 时，live 请求在发出之前失败，错误码是 `model_gateway_unconfigured`。这不是夹具回复。夹具模式仍然只有显式 `ALLOW_GATEWAY_FIXTURE=1` 才会启动，它的回复不能当成 88API 或 DeepSeek。
++
++服务器用 `node --experimental-strip-types` 直接跑 TypeScript，这几项替换不需要重新 `npm install`。前端包没有改。若要在本机复查，可以在替换后的目录运行 `npm test`、`npm run typecheck` 和 `npm run build`。
+diff --git a/server/src/config.ts b/server/src/config.ts
+index 4ed5de1..93814fc 100644
+--- a/server/src/config.ts
++++ b/server/src/config.ts
+@@ -1,4 +1,5 @@
+ import path from 'node:path'
++import { readUpstreamSettings } from './upstream-request.ts'
+ 
+ export const MODELS = [
+   { id: 'deepseek-flash', label: 'deepseek-flash' },
+@@ -32,6 +33,9 @@ export type AppConfig = {
+   loginLimit: number
+   defaultDailyRequests: number
+   defaultDailyTokens: number
++  deepseekModel: string | null
++  reasoningEffort: 'low' | 'high' | 'max' | 'none'
++  temperature: number
+ }
+ 
+ const bool = (value: string | undefined, fallback: boolean) => {
+@@ -84,6 +88,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
+   const databasePath = overrides.databasePath ?? env.DATABASE_PATH ?? path.resolve('data/app.sqlite')
+   const dataDir = overrides.dataDir ?? env.DATA_DIR ?? path.resolve('data')
+   const key = overrides.deepseekApiKey !== undefined ? overrides.deepseekApiKey : env.DEEPSEEK_API_KEY?.trim() || null
++  const upstream = readUpstreamSettings(env, {
++    baseUrl: overrides.deepseekBaseUrl,
++    model: overrides.deepseekModel,
++    reasoningEffort: overrides.reasoningEffort,
++    temperature: overrides.temperature,
++  })
+   const config: AppConfig = {
+     nodeEnv,
+     host: overrides.host ?? env.HOST ?? '127.0.0.1',
+@@ -95,7 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
+     cookieSecure: overrides.cookieSecure ?? bool(env.COOKIE_SECURE, false),
+     gatewayMode,
+     allowGatewayFixture,
+-    deepseekBaseUrl: (overrides.deepseekBaseUrl ?? env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com').replace(/\/$/, ''),
++    deepseekBaseUrl: upstream.baseUrl,
+     deepseekApiKey: key,
+     fixtureBaseUrl: overrides.fixtureBaseUrl ?? env.FIXTURE_BASE_URL ?? null,
+     prices: overrides.prices ?? parsePrices(env.MODEL_PRICE_JSON),
+@@ -104,6 +114,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
+     loginLimit: overrides.loginLimit ?? Number(env.LOGIN_LIMIT ?? 30),
+     defaultDailyRequests: overrides.defaultDailyRequests ?? Number(env.DEFAULT_DAILY_REQUESTS ?? 200),
+     defaultDailyTokens: overrides.defaultDailyTokens ?? Number(env.DEFAULT_DAILY_TOKENS ?? 200_000),
++    deepseekModel: upstream.model,
++    reasoningEffort: upstream.reasoningEffort,
++    temperature: upstream.temperature,
+   }
+   if (config.gatewayMode === 'fixture' && !config.fixtureBaseUrl) {
+     throw new Error('Fixture gateway mode requires FIXTURE_BASE_URL')
+diff --git a/server/src/create-app.ts b/server/src/create-app.ts
+index e86aff9..b35814d 100644
+--- a/server/src/create-app.ts
++++ b/server/src/create-app.ts
+@@ -13,6 +13,7 @@ import {
+   streamAssistant,
+ } from './chat-service.ts'
+ import { gatewayConfigured, isKnownModel, MODELS, type AppConfig, DEFAULT_MODEL } from './config.ts'
++import { describeUpstream } from './upstream-request.ts'
+ import { many, one, run, withTx } from './db.ts'
+ import { streamCompletion } from './gateway.ts'
+ import {
+@@ -339,6 +340,15 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
+           : gatewayConfigured(ctx.config)
+             ? 'Server gateway is configured. The browser does not receive the provider key.'
+             : 'Server provider key is not configured. Chat will fail closed.',
++      upstream:
++        ctx.config.gatewayMode === 'live'
++          ? describeUpstream({
++              baseUrl: ctx.config.deepseekBaseUrl,
++              model: ctx.config.deepseekModel,
++              reasoningEffort: ctx.config.reasoningEffort,
++              temperature: ctx.config.temperature,
++            })
++          : null,
+     })
+   })
+ 
+diff --git a/server/src/gateway.ts b/server/src/gateway.ts
+index 40e7532..4dd32f0 100644
+--- a/server/src/gateway.ts
++++ b/server/src/gateway.ts
+@@ -1,6 +1,7 @@
+ import type { AppConfig } from './config.ts'
+ import { gatewayConfigured } from './config.ts'
+ import type { PromptMessage } from './prompt.ts'
++import { buildLiveChatBody } from './upstream-request.ts'
+ 
+ export class GatewayError extends Error {
+   code: 'model_gateway_unconfigured' | 'provider_error' | 'provider_unreachable'
+@@ -41,18 +42,31 @@ export async function streamCompletion(
+     )
+   }
+   const source = config.gatewayMode === 'fixture' ? 'fixture' : 'live'
+-  const base = source === 'fixture' ? config.fixtureBaseUrl! : config.deepseekBaseUrl
+   const apiKey = config.deepseekApiKey ?? (source === 'fixture' ? 'fixture-local' : '')
+-  const body: Record<string, unknown> = {
+-    model: input.model,
+-    messages: input.messages,
+-    stream: true,
+-    stream_options: { include_usage: true },
+-  }
+-  if (input.thinking) body.thinking = { type: 'enabled' }
++  const live = source === 'live'
++    ? buildLiveChatBody(
++        {
++          baseUrl: config.deepseekBaseUrl,
++          model: config.deepseekModel,
++          reasoningEffort: config.reasoningEffort,
++          temperature: config.temperature,
++        },
++        { model: input.model, messages: input.messages }
++      )
++    : null
++  const body: Record<string, unknown> = live
++    ? live.body
++    : {
++        model: input.model,
++        messages: input.messages,
++        stream: true,
++        stream_options: { include_usage: true },
++        ...(input.thinking ? { thinking: { type: 'enabled' } } : {}),
++      }
++  const url = live ? live.url : `${config.fixtureBaseUrl}/chat/completions`
+   let response: Response
+   try {
+-    response = await fetch(`${base}/chat/completions`, {
++    response = await fetch(url, {
+       method: 'POST',
+       headers: {
+         Authorization: `Bearer ${apiKey}`,
+diff --git a/server/src/upstream-request.ts b/server/src/upstream-request.ts
+new file mode 100644
+index 0000000..e31c5ec
+--- /dev/null
++++ b/server/src/upstream-request.ts
+@@ -0,0 +1,125 @@
++export const REASONING_EFFORTS = ['low', 'high', 'max', 'none'] as const
++
++export type ReasoningEffort = (typeof REASONING_EFFORTS)[number]
++
++export type UpstreamSettings = {
++  baseUrl: string
++  model: string | null
++  reasoningEffort: ReasoningEffort
++  temperature: number
++}
++
++const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
++
++export function readUpstreamSettings(
++  env: NodeJS.ProcessEnv,
++  overrides: {
++    baseUrl?: string
++    model?: string | null
++    reasoningEffort?: ReasoningEffort
++    temperature?: number
++  } = {}
++): UpstreamSettings {
++  const baseUrl = normalizeBaseUrl(overrides.baseUrl ?? env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com')
++  const model = normalizeModel(overrides.model === undefined ? env.DEEPSEEK_MODEL : overrides.model ?? undefined)
++  const reasoningEffort = normalizeReasoning(overrides.reasoningEffort ?? env.REASONING_EFFORT)
++  const temperature = normalizeTemperature(overrides.temperature ?? env.TEMPERATURE)
++  return { baseUrl, model, reasoningEffort, temperature }
++}
++
++export function normalizeBaseUrl(raw: string): string {
++  const trimmed = raw.trim().replace(/\/+$/, '')
++  if (!trimmed) throw new Error('DEEPSEEK_BASE_URL is empty')
++  let url: URL
++  try {
++    url = new URL(trimmed)
++  } catch {
++    throw new Error('DEEPSEEK_BASE_URL must be an absolute http(s) URL')
++  }
++  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
++    throw new Error('DEEPSEEK_BASE_URL must use http or https')
++  }
++  if (url.username || url.password) throw new Error('DEEPSEEK_BASE_URL must not contain credentials')
++  if (url.search || url.hash) throw new Error('DEEPSEEK_BASE_URL must not contain a query or hash')
++  const path = url.pathname.replace(/\/+$/, '')
++  if (/\/v1\/v1(\/|$)/i.test(path)) {
++    throw new Error('DEEPSEEK_BASE_URL contains /v1/v1. For 88API use https://api.88api.ai/v1 and do not append /chat/completions yourself.')
++  }
++  if (url.hostname === 'api.88api.ai' && path !== '/v1' && path !== '/v1/chat/completions') {
++    throw new Error('88API DEEPSEEK_BASE_URL must be https://api.88api.ai/v1. Omitting /v1 or adding another /v1 is rejected.')
++  }
++  return `${url.origin}${path}`
++}
++
++export function chatCompletionsUrl(baseUrl: string): string {
++  const normalized = normalizeBaseUrl(baseUrl)
++  if (normalized.endsWith('/chat/completions')) return normalized
++  return `${normalized}/chat/completions`
++}
++
++export function buildLiveChatBody(
++  settings: UpstreamSettings,
++  input: { model: string; messages: unknown[] }
++): { url: string; body: Record<string, unknown>; temperatureSent: boolean; sampling: 'thinking-temperature-omitted' | 'non-thinking-temperature-sent' } {
++  const model = settings.model ?? input.model
++  if (!MODEL_ID.test(model)) throw new Error('Upstream model id is not a single token of letters, numbers, dots, or hyphens')
++  const body: Record<string, unknown> = {
++    model,
++    messages: input.messages,
++    stream: true,
++    stream_options: { include_usage: true },
++    reasoning_effort: settings.reasoningEffort,
++  }
++  const thinking = settings.reasoningEffort !== 'none'
++  if (!thinking) body.temperature = settings.temperature
++  return {
++    url: chatCompletionsUrl(settings.baseUrl),
++    body,
++    temperatureSent: !thinking,
++    sampling: thinking ? 'thinking-temperature-omitted' : 'non-thinking-temperature-sent',
++  }
++}
++
++export function describeUpstream(settings: UpstreamSettings) {
++  const built = buildLiveChatBody(settings, { model: settings.model ?? 'deepseek-flash', messages: [] })
++  return {
++    chatCompletionsUrl: built.url,
++    model: settings.model,
++    reasoningEffort: settings.reasoningEffort,
++    temperatureConfigured: settings.temperature,
++    temperatureSent: built.temperatureSent,
++    sampling: built.sampling,
++    note:
++      built.sampling === 'thinking-temperature-omitted'
++        ? 'reasoning_effort low、high、max 按 DeepSeek 官方说明属于思考模式。这次 live 请求不发送 temperature，不能把温度和思考档说成同时生效。88API 令牌是否允许 deepseek-v4.1-flash 尚未验证。'
++        : 'reasoning_effort=none 才发送 temperature。这是非思考请求的采样参数，不是和思考档一起生效。',
++  }
++}
++
++function normalizeModel(raw: string | null | undefined): string | null {
++  if (raw === undefined || raw === null) return null
++  const model = raw.trim()
++  if (!model) return null
++  if (!MODEL_ID.test(model)) throw new Error('DEEPSEEK_MODEL must be one token of letters, numbers, dots, or hyphens')
++  return model
++}
++
++function normalizeReasoning(raw: string | ReasoningEffort | undefined): ReasoningEffort {
++  const value = (raw ?? 'low').trim()
++  if (value === 'medium') {
++    throw new Error('REASONING_EFFORT=medium is only the generic 88API o-series example. DeepSeek uses none, low, high, or max. medium is rejected so it is not silently mapped.')
++  }
++  if (!REASONING_EFFORTS.includes(value as ReasoningEffort)) {
++    throw new Error('REASONING_EFFORT must be low, high, max, or none')
++  }
++  return value as ReasoningEffort
++}
++
++function normalizeTemperature(raw: number | string | undefined): number {
++  if (raw === undefined || raw === '') return 2
++  const value = typeof raw === 'number' ? raw : Number(raw)
++  if (!Number.isFinite(value) || value < 0 || value > 2) {
++    throw new Error('TEMPERATURE must be a number from 0 to 2')
++  }
++  return value
++}
+diff --git a/server/test/upstream-request.test.ts b/server/test/upstream-request.test.ts
+new file mode 100644
+index 0000000..497b9a3
+--- /dev/null
++++ b/server/test/upstream-request.test.ts
+@@ -0,0 +1,146 @@
++import assert from 'node:assert/strict'
++import { createServer } from 'node:http'
++import test from 'node:test'
++import { loadConfig } from '../src/config.ts'
++import { GatewayError, streamCompletion } from '../src/gateway.ts'
++import { buildLiveChatBody, chatCompletionsUrl, readUpstreamSettings } from '../src/upstream-request.ts'
++
++test('88API live body uses reasoning_effort low and omits temperature', () => {
++  const settings = readUpstreamSettings({
++    DEEPSEEK_BASE_URL: 'https://api.88api.ai/v1/',
++    DEEPSEEK_MODEL: 'deepseek-v4.1-flash',
++    REASONING_EFFORT: 'low',
++    TEMPERATURE: '2',
++  })
++  const built = buildLiveChatBody(settings, {
++    model: 'deepseek-flash',
++    messages: [{ role: 'user', content: '你好' }],
++  })
++  assert.equal(built.url, 'https://api.88api.ai/v1/chat/completions')
++  assert.equal(built.url.includes('/v1/v1'), false)
++  assert.equal(built.body.model, 'deepseek-v4.1-flash')
++  assert.equal(built.body.reasoning_effort, 'low')
++  assert.equal(built.body.stream, true)
++  assert.equal(Object.hasOwn(built.body, 'temperature'), false)
++  assert.equal(Object.hasOwn(built.body, 'thinking'), false)
++  assert.equal(built.temperatureSent, false)
++  assert.equal(built.sampling, 'thinking-temperature-omitted')
++})
++
++test('temperature is sent only when reasoning_effort is none', () => {
++  const settings = readUpstreamSettings({
++    DEEPSEEK_BASE_URL: 'https://api.88api.ai/v1',
++    REASONING_EFFORT: 'none',
++    TEMPERATURE: '2',
++  })
++  const built = buildLiveChatBody(settings, { model: 'deepseek-v4.1-flash', messages: [] })
++  assert.equal(built.body.reasoning_effort, 'none')
++  assert.equal(built.body.temperature, 2)
++  assert.equal(built.temperatureSent, true)
++  assert.equal(built.sampling, 'non-thinking-temperature-sent')
++})
++
++test('base URL rejects a second /v1 and a bare 88API host', () => {
++  assert.throws(() => chatCompletionsUrl('https://api.88api.ai/v1/v1'), /v1\/v1/)
++  assert.throws(() => chatCompletionsUrl('https://api.88api.ai'), /must be https:\/\/api\.88api\.ai\/v1/)
++  assert.equal(chatCompletionsUrl('https://api.88api.ai/v1/chat/completions'), 'https://api.88api.ai/v1/chat/completions')
++  assert.throws(() => readUpstreamSettings({ REASONING_EFFORT: 'medium' }), /medium/)
++  assert.throws(() => readUpstreamSettings({ TEMPERATURE: '3' }), /TEMPERATURE/)
++  assert.throws(() => readUpstreamSettings({ DEEPSEEK_MODEL: 'bad model' }), /DEEPSEEK_MODEL/)
++})
++
++test('live stream posts the 88API body and does not label the recorder as a fixture', async () => {
++  const seen: Array<{ url: string | undefined; authorization: string | undefined; body: unknown }> = []
++  const server = createServer(async (req, res) => {
++    const chunks: Buffer[] = []
++    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
++    seen.push({
++      url: req.url,
++      authorization: typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined,
++      body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
++    })
++    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
++    res.end('data: {"choices":[{"delta":{"content":"local"}}]}\n\ndata: {"usage":{"prompt_tokens":2,"completion_tokens":1}}\n\ndata: [DONE]\n\n')
++  })
++  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
++  const address = server.address()
++  if (!address || typeof address === 'string') throw new Error('recorder failed')
++  const key = 'sk-local-recorder-not-a-provider'
++  try {
++    const config = loadConfig(
++      { NODE_ENV: 'test' },
++      {
++        nodeEnv: 'test',
++        gatewayMode: 'live',
++        deepseekApiKey: key,
++        deepseekBaseUrl: `http://127.0.0.1:${address.port}`,
++        deepseekModel: 'deepseek-v4.1-flash',
++        reasoningEffort: 'low',
++        temperature: 2,
++      }
++    )
++    let text = ''
++    const result = await streamCompletion(config, {
++      model: 'deepseek-flash',
++      messages: [{ role: 'user', content: '你好' }],
++      thinking: true,
++      onDelta: (delta) => {
++        text += delta.content ?? ''
++      },
++    })
++    assert.equal(result.source, 'live')
++    assert.equal(text, 'local')
++    assert.equal(seen.length, 1)
++    assert.equal(seen[0]?.url, '/chat/completions')
++    assert.equal(seen[0]?.authorization, `Bearer ${key}`)
++    const body = seen[0]?.body as Record<string, unknown>
++    assert.equal(body.model, 'deepseek-v4.1-flash')
++    assert.equal(body.reasoning_effort, 'low')
++    assert.equal(Object.hasOwn(body, 'temperature'), false)
++    assert.equal(JSON.stringify(seen).includes('fixture-reply'), false)
++  } finally {
++    await new Promise<void>((resolve) => server.close(() => resolve()))
++  }
++})
++
++test('live mode without a key fails before any provider request', async () => {
++  let calls = 0
++  const server = createServer((_req, res) => {
++    calls += 1
++    res.writeHead(200)
++    res.end('fixture-reply:should-not-be-read')
++  })
++  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
++  const address = server.address()
++  if (!address || typeof address === 'string') throw new Error('recorder failed')
++  try {
++    const config = loadConfig(
++      { NODE_ENV: 'test', DEEPSEEK_API_KEY: '' },
++      {
++        nodeEnv: 'test',
++        gatewayMode: 'live',
++        deepseekApiKey: null,
++        deepseekBaseUrl: `http://127.0.0.1:${address.port}`,
++      }
++    )
++    await assert.rejects(
++      () =>
++        streamCompletion(config, {
++          model: 'deepseek-flash',
++          messages: [{ role: 'user', content: '你好' }],
++          thinking: false,
++          onDelta: () => undefined,
++        }),
++      (error: unknown) => {
++        assert.ok(error instanceof GatewayError)
++        assert.equal(error.code, 'model_gateway_unconfigured')
++        assert.equal(error.message.includes('fixture-reply'), false)
++        assert.equal(error.message.includes('sk-'), false)
++        return true
++      }
++    )
++    assert.equal(calls, 0)
++  } finally {
++    await new Promise<void>((resolve) => server.close(() => resolve()))
++  }
++})

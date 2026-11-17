@@ -1,0 +1,16 @@
+Companion Platform
+Copyright (c) 2026 Companion Platform contributors
+
+This product includes markdown rendering code from the DeepSeek chat demo:
+
+  deepseek-ai/chat-demo
+  https://github.com/deepseek-ai/chat-demo
+  pinned commit 5d5dd754ebc1948e977ddb880a9eb5aa25f37b4c
+  Copyright (c) 2026 DeepSeek
+  MIT License
+
+The license text and the list of copied, modified, and locally written files are in
+web/src/vendor/deepseek-chat-demo/LICENSE and web/src/vendor/deepseek-chat-demo/NOTICE.md.
+
+Companion Platform is an independent project. It does not use DeepSeek trademarks or logos,
+and it is not the official DeepSeek app. Third-party packages keep their own licenses.
