@@ -16,7 +16,7 @@ function Layout() {
   return (
     <div className="shell">
       <nav className="nav">
-        <NavLink to="/" className="brand" end>Companion Platform</NavLink>
+        <NavLink to="/" className="brand" end><span className="mark">D/</span> Deep Companion</NavLink>
         <NavLink to="/companion">陪伴</NavLink>
         <NavLink to="/workspace">工作区</NavLink>
         <NavLink to="/notifications">通知</NavLink>

@@ -62,6 +62,12 @@ function SettingsPage() {
           <label>免打扰开始（UTC 分钟，可空）<input value={settings.quietStartMinute ?? ''} onChange={(event) => setSettings({ ...settings, quietStartMinute: event.target.value === '' ? null : Number(event.target.value) })} /></label>
           <label>免打扰结束<input value={settings.quietEndMinute ?? ''} onChange={(event) => setSettings({ ...settings, quietEndMinute: event.target.value === '' ? null : Number(event.target.value) })} /></label>
           <button className="primary" type="submit">保存主动消息</button>
+          <button className="ghost" type="button" data-testid="initiative-tick" onClick={async () => {
+            const result = await api<{ status: string; reason?: string }>('/api/initiative/tick', { body: {} })
+            setMessage(result.status === 'ok'
+              ? '已按已授权时间线检查主动消息。没有供应商 Key 时不会生成假回复。'
+              : `这次没有发出主动消息：${result.reason ?? result.status}`)
+          }}>立即检查主动消息</button>
         </form>
       ) : null}
       <form className="panel" onSubmit={async (event: FormEvent) => {
@@ -130,7 +136,7 @@ function PrivacyPage() {
     <main className="page">
       <h1>隐私说明</h1>
       <div className="panel stack">
-        <p>Companion Platform 把账号、角色、记忆、工作区和对话存在本服务的数据库里。会话使用 HttpOnly Cookie，不把登录态放在浏览器本地变量里冒充账号。</p>
+        <p>Deep Companion 把账号、角色、记忆、工作区和对话存在本服务的数据库里。会话使用 HttpOnly Cookie，不把登录态放在浏览器本地变量里冒充账号。D/ 是本产品的文字标识，不是 DeepSeek 官方标志。</p>
         <p>供应商 API Key 只应由管理员配置在服务端环境中。浏览器页面、前端包和普通日志不应出现这把 Key。没有 Key 时聊天会明确失败，不会用假回复顶上。</p>
         <p>人格卡和记忆是两套数据。工作区记录默认不进入陪伴上下文；只有你授权的字段可以被只读读取，每次读取会记审计，授权可以撤销。</p>
         <p>你可以导出自己的数据，或删除自己的账号。删除不会影响其他用户。私人聊天不会提供给其他用户。</p>

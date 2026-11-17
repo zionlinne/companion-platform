@@ -13,7 +13,7 @@ import {
   streamAssistant,
 } from './chat-service.ts'
 import { gatewayConfigured, isKnownModel, MODELS, type AppConfig, DEFAULT_MODEL } from './config.ts'
-import { many, one, run } from './db.ts'
+import { many, one, run, withTx } from './db.ts'
 import { streamCompletion } from './gateway.ts'
 import {
   asBool,
@@ -53,6 +53,18 @@ import type {
 } from './types.ts'
 
 const CATEGORIES = new Set<MemoryCategory>(['persona', 'fact', 'event', 'relationship'])
+const COMPANION_LIMIT = 5
+
+function companionCount(db: Ctx['db'], userId: string): number {
+  const row = one<{ n: number }>(db, `SELECT COUNT(*) AS n FROM characters WHERE user_id = ?`, userId)
+  return Number(row?.n ?? 0)
+}
+
+function reserveCompanionSlot(db: Ctx['db'], userId: string): void {
+  if (companionCount(db, userId) >= COMPANION_LIMIT) {
+    throw new HttpError(409, 'companion_limit', '每个账号最多 5 个 Companion。删除一个后才能再创建、复制或导入。')
+  }
+}
 
 const loginFailures = new Map<string, number[]>()
 
@@ -511,7 +523,7 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
   add('GET', '/api/characters', async (ctx) => {
     const user = requireUser(ctx)
     const rows = many<CharacterRow>(ctx.db, `SELECT * FROM characters WHERE user_id = ? ORDER BY updated_at DESC`, user.id)
-    json(ctx.res, 200, { characters: rows.map(characterJson) })
+    json(ctx.res, 200, { characters: rows.map(characterJson), used: rows.length, limit: COMPANION_LIMIT })
   })
 
   add('POST', '/api/characters', async (ctx) => {
@@ -537,26 +549,29 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       created_at: at,
       updated_at: at,
     }
-    run(
-      ctx.db,
-      `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id,
-      row.user_id,
-      row.name,
-      row.avatar_text,
-      row.identity,
-      row.background,
-      row.traits,
-      row.style,
-      row.habits,
-      row.relationship,
-      row.rules,
-      row.default_model,
-      row.initiative_enabled,
-      at,
-      at
-    )
+    withTx(ctx.db, () => {
+      reserveCompanionSlot(ctx.db, user.id)
+      run(
+        ctx.db,
+        `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.user_id,
+        row.name,
+        row.avatar_text,
+        row.identity,
+        row.background,
+        row.traits,
+        row.style,
+        row.habits,
+        row.relationship,
+        row.rules,
+        row.default_model,
+        row.initiative_enabled,
+        at,
+        at
+      )
+    })
     json(ctx.res, 201, { character: characterJson(row) })
   })
 
@@ -628,51 +643,54 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
     const body = await readJson(ctx.req)
     const at = nowIso()
     const copy: CharacterRow = { ...source, id: newId(), name: `${source.name} 副本`.slice(0, 80), created_at: at, updated_at: at }
-    run(
-      ctx.db,
-      `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      copy.id,
-      user.id,
-      copy.name,
-      copy.avatar_text,
-      copy.identity,
-      copy.background,
-      copy.traits,
-      copy.style,
-      copy.habits,
-      copy.relationship,
-      copy.rules,
-      copy.default_model,
-      copy.initiative_enabled,
-      at,
-      at
-    )
-    if (asBool(body.copyMemories, false)) {
-      const memories = many<MemoryRow>(
+    withTx(ctx.db, () => {
+      reserveCompanionSlot(ctx.db, user.id)
+      run(
         ctx.db,
-        `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active'`,
-        source.id,
-        user.id
+        `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        copy.id,
+        user.id,
+        copy.name,
+        copy.avatar_text,
+        copy.identity,
+        copy.background,
+        copy.traits,
+        copy.style,
+        copy.habits,
+        copy.relationship,
+        copy.rules,
+        copy.default_model,
+        copy.initiative_enabled,
+        at,
+        at
       )
-      for (const memory of memories) {
-        run(
+      if (asBool(body.copyMemories, false)) {
+        const memories = many<MemoryRow>(
           ctx.db,
-          `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-          newId(),
-          user.id,
-          copy.id,
-          memory.category,
-          memory.content,
-          `copy:${memory.id}`,
-          memory.explicit,
-          memory.note,
-          at,
-          at
+          `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active'`,
+          source.id,
+          user.id
         )
+        for (const memory of memories) {
+          run(
+            ctx.db,
+            `INSERT INTO memories (id, user_id, character_id, category, content, source, explicit, note, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+            newId(),
+            user.id,
+            copy.id,
+            memory.category,
+            memory.content,
+            `copy:${memory.id}`,
+            memory.explicit,
+            memory.note,
+            at,
+            at
+          )
+        }
       }
-    }
+    })
     json(ctx.res, 201, { character: characterJson(copy) })
   })
 
@@ -737,26 +755,29 @@ export function createApp(deps: { db: DatabaseSync; config: AppConfig; log: Logg
       created_at: at,
       updated_at: at,
     }
-    run(
-      ctx.db,
-      `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id,
-      row.user_id,
-      row.name,
-      row.avatar_text,
-      row.identity,
-      row.background,
-      row.traits,
-      row.style,
-      row.habits,
-      row.relationship,
-      row.rules,
-      row.default_model,
-      row.initiative_enabled,
-      at,
-      at
-    )
+    withTx(ctx.db, () => {
+      reserveCompanionSlot(ctx.db, user.id)
+      run(
+        ctx.db,
+        `INSERT INTO characters (id, user_id, name, avatar_text, identity, background, traits, style, habits, relationship, rules, default_model, initiative_enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.user_id,
+        row.name,
+        row.avatar_text,
+        row.identity,
+        row.background,
+        row.traits,
+        row.style,
+        row.habits,
+        row.relationship,
+        row.rules,
+        row.default_model,
+        row.initiative_enabled,
+        at,
+        at
+      )
+    })
     json(ctx.res, 201, { character: characterJson(row) })
   })
 

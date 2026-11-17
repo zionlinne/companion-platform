@@ -2,7 +2,7 @@
 
 日期：2026-11-17。状态只描述已经跑过的代码，不把测试夹具说成真实 DeepSeek。
 
-服务端测试和浏览器端到端都在本分支跑过。浏览器聊天走的是显式夹具，横幅写明不是 DeepSeek。没有供应商 Key，所以「真实角色聊天」仍然是 BLOCKED，不能写成通过。
+服务端测试和浏览器端到端都在本分支跑过。浏览器聊天走的是显式夹具，横幅写明不是 DeepSeek。没有供应商 Key，所以「真实角色聊天」仍然是 BLOCKED，不能写成通过。每个账号最多 5 个 Companion，创建、复制和导入在同一个写事务里计数。人手测步骤在 `docs/TRIAL.md`，截图在 `docs/evidence/screenshots/`。账户、钱包和 Better Auth 替换不在这份检查点里。
 
 真实供应商对话这一项是 **BLOCKED**：没有获准使用的 `DEEPSEEK_API_KEY`，也没有搜索或使用任何旧密钥。`live` 模式在没有 Key 时返回 `model_gateway_unconfigured`，不插入假回复。夹具模式必须显式打开，回复带 `fixture-reply:` 或 `主动提醒：`，并在网关状态里标明 `realProvider: false`。
 

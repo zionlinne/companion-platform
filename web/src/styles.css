@@ -24,6 +24,7 @@ a { color: #23483d; }
   z-index: 2;
   overflow-x: auto;
 }
+.mark { font-family: Palatino, "Iowan Old Style", "Songti SC", serif; letter-spacing: -0.04em; }
 .brand {
   font-family: Palatino, "Iowan Old Style", "Songti SC", serif;
   font-size: 18px;

@@ -555,3 +555,44 @@ test('memory package round trip stays on one character and persona templates sta
     await app.close()
   }
 })
+
+test('five companion slots are enforced across create, copy, and import', async () => {
+  const { app, adminCookie } = await boot()
+  try {
+    const owner = await register(app, await invite(app, adminCookie), 'limit-owner@example.com')
+    const other = await register(app, await invite(app, adminCookie), 'limit-other@example.com')
+    for (let index = 0; index < 4; index += 1) {
+      const created = await api(app.baseUrl, 'POST', '/api/characters', { cookie: owner.cookie, body: { name: `角色${index}` } })
+      assert.equal(created.status, 201)
+    }
+    const [first, second] = await Promise.all([
+      api(app.baseUrl, 'POST', '/api/characters', { cookie: owner.cookie, body: { name: '第五A' } }),
+      api(app.baseUrl, 'POST', '/api/characters', { cookie: owner.cookie, body: { name: '第五B' } }),
+    ])
+    const statuses = [first.status, second.status].sort()
+    assert.deepEqual(statuses, [201, 409])
+    const winner = first.status === 201 ? first : second
+    const listed = await api(app.baseUrl, 'GET', '/api/characters', { cookie: owner.cookie })
+    assert.equal(listed.json.characters.length, 5)
+    assert.equal(listed.json.used, 5)
+    assert.equal(listed.json.limit, 5)
+    const copied = await api(app.baseUrl, 'POST', `/api/characters/${winner.json.character.id}/copy`, { cookie: owner.cookie, body: {} })
+    assert.equal(copied.status, 409)
+    assert.equal(copied.json.error.code, 'companion_limit')
+    const imported = await api(app.baseUrl, 'POST', '/api/characters/import', {
+      cookie: owner.cookie,
+      body: { kind: 'companion-platform-character', version: 1, character: { name: '导入超额' } },
+    })
+    assert.equal(imported.status, 409)
+    const removed = await api(app.baseUrl, 'DELETE', `/api/characters/${winner.json.character.id}`, { cookie: owner.cookie })
+    assert.equal(removed.status, 200)
+    const again = await api(app.baseUrl, 'POST', '/api/characters', { cookie: owner.cookie, body: { name: '补位' } })
+    assert.equal(again.status, 201)
+    const otherCreated = await api(app.baseUrl, 'POST', '/api/characters', { cookie: other.cookie, body: { name: '别人的角色' } })
+    assert.equal(otherCreated.status, 201)
+    const ownerAfter = await api(app.baseUrl, 'GET', '/api/characters', { cookie: owner.cookie })
+    assert.equal(ownerAfter.json.characters.some((item: { name: string }) => item.name === '别人的角色'), false)
+  } finally {
+    await app.close()
+  }
+})

@@ -154,16 +154,16 @@ function GrantsPage() {
         await load()
       }}>
         <label>事件
-          <select value={eventId} onChange={(event) => setEventId(event.target.value)}>
+          <select data-testid="grant-event" value={eventId} onChange={(event) => setEventId(event.target.value)}>
             {events.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
           </select>
         </label>
         <label>角色
-          <select value={characterId} onChange={(event) => setCharacterId(event.target.value)}>
+          <select data-testid="grant-character" value={characterId} onChange={(event) => setCharacterId(event.target.value)}>
             {characters.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
-        <label className="check"><input type="checkbox" checked={allowTitle} onChange={(event) => setAllowTitle(event.target.checked)} />标题</label>
+        <label className="check"><input data-testid="grant-title" type="checkbox" checked={allowTitle} onChange={(event) => setAllowTitle(event.target.checked)} />标题</label>
         <label className="check"><input type="checkbox" checked={allowSummary} onChange={(event) => setAllowSummary(event.target.checked)} />摘要</label>
         <button className="primary" type="submit">授权所选字段</button>
       </form>

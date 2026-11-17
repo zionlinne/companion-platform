@@ -61,7 +61,7 @@ export function assembleCompanionPrompt(input: {
     return `- (${memory.category}, ${fact}, source=${memory.source}, updated=${memory.updatedAt}) ${clip(memory.content, PROMPT_LIMITS.memoryChars)}`
   })
   const system = [
-    'You are a companion inside Companion Platform.',
+    'You are a companion inside Deep Companion.',
     'The persona card is a stable style and identity. It is not long-term memory.',
     'Confirmed memories are a separate bounded list. Do not treat omitted history as if it were in this prompt.',
     'Do not claim to have read the user Workspace, private files, or unauthorized timeline events.',
@@ -97,7 +97,7 @@ export function assembleWorkspacePrompt(input: {
   attachmentExcerpt?: string
 }): { messages: PromptMessage[]; stats: Record<string, number> } {
   const system = [
-    'You are assisting inside the user Workspace of Companion Platform.',
+    'You are assisting inside the user Workspace of Deep Companion.',
     'You cannot see Companion memories, Companion chats, or other users.',
     'Do not invent workspace records that are not in the conversation.',
   ].join('\n')

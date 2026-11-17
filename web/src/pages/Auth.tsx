@@ -28,7 +28,7 @@ export function AuthPages({ mode }: { mode: 'login' | 'register' }) {
 
   return (
     <main className="page">
-      <p className="brand">Companion Platform</p>
+      <p className="brand"><span className="mark">D/</span> Deep Companion</p>
       <h1>{mode === 'login' ? '登录' : '邀请注册'}</h1>
       <p className="muted">普通用户不填写模型供应商 Key。模型调用只经过服务端网关。</p>
       <form className="panel" onSubmit={(event) => void submit(event)}>

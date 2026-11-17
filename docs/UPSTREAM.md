@@ -48,6 +48,6 @@
 
 因此本仓库的账号、数据库、网关和页面是自己的实现。不能说整个产品基于 chat-demo。
 
-也没有使用 DeepSeek 商标或 Logo。产品标识是文字「Companion Platform」。
+也没有使用 DeepSeek 商标或 Logo。产品标识是文字「D/ Deep Companion」。
 
 DeepSeek 历史 ZIP（`export_format_version: 3`）的完整导入器没有搬过来。记忆导入如果看到这个版本标记会拒绝，并说明 ZIP 历史包尚未支持。

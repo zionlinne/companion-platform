@@ -52,18 +52,22 @@ export function CompanionPages({ mode }: { mode: 'list' | 'edit' | 'memories' })
 function CharacterList() {
   const navigate = useNavigate()
   const [characters, setCharacters] = useState<Character[]>([])
+  const [quota, setQuota] = useState({ used: 0, limit: 5 })
   const [conversations, setConversations] = useState<Array<{ id: string; title: string; characterId: string | null }>>([])
   useEffect(() => {
-    void api<{ characters: Character[] }>('/api/characters').then((data) => setCharacters(data.characters))
+    void api<{ characters: Character[]; used: number; limit: number }>('/api/characters').then((data) => {
+      setCharacters(data.characters)
+      setQuota({ used: data.used, limit: data.limit })
+    })
     void api<{ conversations: Array<{ id: string; title: string; characterId: string | null }> }>('/api/conversations?space=companion').then((data) => setConversations(data.conversations))
   }, [])
   return (
     <main className="page">
       <div className="row">
         <h1>陪伴</h1>
-        <Link className="primary" to="/companion/new">新建角色</Link>
+        {quota.used < quota.limit ? <Link className="primary" to="/companion/new">新建角色</Link> : <span>已满额，删除后才能新建</span>}
       </div>
-      <p className="muted">每个人格单独保存。人格卡不是长期记忆。</p>
+      <p className="muted" data-testid="companion-quota">每个账号 {quota.used}/{quota.limit} 个 Companion。人格卡不是长期记忆，删除后名额会释放。</p>
       <div className="stack">
         {characters.map((character) => (
           <div className="panel" key={character.id}>

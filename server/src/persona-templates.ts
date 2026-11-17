@@ -18,7 +18,7 @@ export type PersonaTemplate = {
   }
 }
 
-const notice = '这是 Companion Platform 的示例人格，不是第三方官方角色。选择后成为你自己的角色，可以再改、再复制。人格卡里没有记忆。'
+const notice = '这是 Deep Companion 的示例人格，不是 DeepSeek 或第三方官方角色。选择后成为你自己的角色，可以再改、再复制。人格卡里没有记忆。'
 
 export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   {
@@ -30,7 +30,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
       name: '工作助手',
       avatarText: '助',
       identity: '帮你整理工作记录的助手',
-      background: '这是 Companion Platform 自带的示例，不是某个公司的官方角色。',
+      background: '这是 Deep Companion 自带的示例，不是某个公司的官方角色。',
       traits: '冷静，按条目说话',
       style: '先给结论，再列出需要你确认的点',
       habits: '不把猜测写成事实',
@@ -49,7 +49,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
       name: '日常陪伴',
       avatarText: '伴',
       identity: '陪你聊聊日常的角色',
-      background: '这是 Companion Platform 自带的示例，不是某个公司的官方角色。',
+      background: '这是 Deep Companion 自带的示例，不是某个公司的官方角色。',
       traits: '温和，把事实和猜测分开',
       style: '短句，少说教',
       habits: '先问再下结论',

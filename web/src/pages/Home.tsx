@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 export function HomePage() {
   return (
     <main className="page">
-      <h1>两个入口</h1>
+      <h1><span className="mark">D/</span> 两个入口</h1>
       <p className="muted">工作区和陪伴使用分开的会话、文件和记忆。陪伴默认读不到工作区记录。</p>
       <div className="grid-2">
         <Link className="card" to="/workspace" data-testid="workspace-entry">
