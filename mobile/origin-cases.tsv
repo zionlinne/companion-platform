@@ -1,0 +1,30 @@
+true	https://example.com	true	https://example.com	
+false	https://example.com	true	https://example.com	
+true	https://example.com/	true	https://example.com	
+true	https://example.com/app	false		请只填写源，不要带路径
+true	https://example.com?x=1	false		地址不能带查询或片段
+true	https://example.com#frag	false		地址不能带查询或片段
+true	https://user:pass@example.com	false		地址不能包含用户名或密码
+true	http://127.0.0.1:8787	true	http://127.0.0.1:8787	
+false	http://127.0.0.1:8787	false		正式包只接受 HTTPS
+true	http://localhost:8787	true	http://localhost:8787	
+true	http://10.0.2.2:8787	true	http://10.0.2.2:8787	
+true	http://192.168.1.8:8787	false		调试 HTTP 只允许本机回环或模拟器 10.0.2.2
+true	http://10.0.0.8:8787	false		调试 HTTP 只允许本机回环或模拟器 10.0.2.2
+false	https://192.168.1.8	true	https://192.168.1.8	
+true	javascript:alert(1)	false		只接受 HTTPS
+true	http://127.0.0.1:8787/api	false		请只填写源，不要带路径
+true	https://Example.COM:8443	true	https://example.com:8443	
+true	ftp://example.com	false		只接受 HTTPS
+true	https://	false		地址不是合法 URL
+true	http://[::1]:8787	true	http://[::1]:8787	
+false	http://[::1]:8787	false		正式包只接受 HTTPS
+true	  http://127.0.0.1:8787  	true	http://127.0.0.1:8787	
+true		false		请填写服务地址
+true	http://0.0.0.0:8787	false		调试 HTTP 只允许本机回环或模拟器 10.0.2.2
+true	https://localhost	true	https://localhost	
+false	http://localhost	false		正式包只接受 HTTPS
+true	http://127.0.0.1	true	http://127.0.0.1	
+true	https://example.com:443	true	https://example.com	
+true	http://127.0.0.1:80	true	http://127.0.0.1	
+true	file:///etc/passwd	false		只接受 HTTPS

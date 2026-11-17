@@ -2,6 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api.ts'
 
+async function readTextFile(file: File): Promise<string> {
+  if (file.size > 1_000_000) throw new Error('文件超过 1MB')
+  return await file.text()
+}
+
 type Character = {
   id: string
   name: string
@@ -212,6 +217,14 @@ function PersonaPage() {
         <h2>导入人格卡</h2>
         <p className="muted">只接受本产品的人格卡。记忆包会被拒绝，不会写进人格字段。</p>
         <label>人格卡 JSON<textarea data-testid="character-import-text" value={importText} onChange={(event) => setImportText(event.target.value)} /></label>
+        <label className="file-input">从文件填入
+          <input data-testid="character-import-file" type="file" accept=".json,application/json,text/plain" onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.currentTarget.value = ''
+            if (!file) return
+            void readTextFile(file).then(setImportText).catch((caught) => setError(caught instanceof Error ? caught.message : '文件无法读取'))
+          }} />
+        </label>
         <button className="ghost" type="submit">导入为新角色</button>
       </form>
     </main>
@@ -307,6 +320,14 @@ function MemoriesPage() {
           </select>
         </label>
         <label>文本<textarea data-testid="memory-import-text" value={text} onChange={(event) => setText(event.target.value)} /></label>
+        <label className="file-input">从文件填入
+          <input data-testid="memory-import-file" type="file" accept=".json,.jsonl,.md,.txt,text/plain,application/json" onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.currentTarget.value = ''
+            if (!file) return
+            void readTextFile(file).then(setText).catch((caught) => setError(caught instanceof Error ? caught.message : '文件无法读取'))
+          }} />
+        </label>
         <button className="ghost" type="button" data-testid="memory-import-preview" onClick={async () => {
           try {
             const result = await api<{

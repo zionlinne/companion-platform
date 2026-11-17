@@ -305,7 +305,9 @@ function serveStatic(config: AppConfig, res: ServerResponse, pathname: string): 
     '.svg': 'image/svg+xml',
     '.png': 'image/png',
     '.json': 'application/json; charset=utf-8',
+    '.woff': 'font/woff',
     '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
     '.map': 'application/json',
     '.txt': 'text/plain; charset=utf-8',
   }

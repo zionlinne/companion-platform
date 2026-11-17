@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Deep Companion</title>
+    <link rel="stylesheet" href="./setup.css" />
+  </head>
+  <body>
+    <main>
+      <p class="mark">D/</p>
+      <h1>Deep Companion</h1>
+      <p>这是安装壳。装上以后还不能注册或聊天，除非下面的地址真的指向你自己的服务。</p>
+      <p class="muted">填写将来的 HTTPS 同源地址，服务要同时提供页面和 <code>/api</code>。不要带路径。这里没有预置公网地址，也没有供应商 Key。推送没有接入。</p>
+      <p class="muted" id="debug-note" hidden>这个 debug 包可以临时填写 <code>http://127.0.0.1:8787</code>。手机上的 127.0.0.1 是手机自己，必须先做 adb reverse。正式包不接受 HTTP。</p>
+      <form class="panel">
+        <label>服务源
+          <input id="origin" name="origin" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="https://你的主机" />
+        </label>
+        <p class="error" id="error"></p>
+        <button class="primary" type="submit">打开这个服务</button>
+      </form>
+      <div class="row">
+        <button class="ghost" id="clear-cookies" type="button">清除本机 Cookie</button>
+      </div>
+      <p class="muted" id="version"></p>
+    </main>
+    <script type="module" src="./setup.js"></script>
+  </body>
+</html>
