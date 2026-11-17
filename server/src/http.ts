@@ -1,6 +1,6 @@
+import type { SqlDb } from './db.ts'
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { DatabaseSync } from 'node:sqlite'
 import type { AppConfig } from './config.ts'
 import type { Logger } from './log.ts'
 import type { UserRow } from './types.ts'
@@ -16,7 +16,7 @@ export class HttpError extends Error {
 }
 
 export type Ctx = {
-  db: DatabaseSync
+  db: SqlDb
   config: AppConfig
   log: Logger
   req: IncomingMessage

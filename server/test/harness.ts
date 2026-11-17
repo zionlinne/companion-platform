@@ -8,11 +8,11 @@ import { migrate, openDatabase } from '../src/db.ts'
 import { startFixture, type FixtureState } from '../src/fixture-provider.ts'
 import { createLogger, type Logger } from '../src/log.ts'
 import { resetLoginFailures } from '../src/create-app.ts'
-import type { DatabaseSync } from 'node:sqlite'
+import type { SqlDb } from '../src/db.ts'
 
 export type Running = {
   baseUrl: string
-  db: DatabaseSync
+  db: SqlDb
   config: AppConfig
   log: Logger
   fixture: { url: string; state: FixtureState; close: () => Promise<void> } | null
@@ -53,8 +53,8 @@ export async function start(options?: {
       initiativePollMs: 0,
     }
   )
-  const db = openDatabase(config.databasePath)
-  migrate(db)
+  const db = openDatabase(config)
+  await migrate(db)
   const log = createLogger(() => {})
   const app = createApp({ db, config, log })
   const server = http.createServer((req, res) => {
@@ -72,7 +72,7 @@ export async function start(options?: {
     dir,
     close: async ({ keepDir } = {}) => {
       await new Promise<void>((resolve) => server.close(() => resolve()))
-      db.close()
+      await db.close()
       if (fixture) await fixture.close()
       if (!keepDir) fs.rmSync(dir, { recursive: true, force: true })
     },

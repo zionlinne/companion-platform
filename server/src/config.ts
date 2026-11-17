@@ -18,6 +18,8 @@ export type AppConfig = {
   host: string
   port: number
   databasePath: string
+  databaseUrl: string | null
+  uploads: 'local' | 'disabled'
   dataDir: string
   staticDir: string | null
   sessionTtlHours: number
@@ -85,6 +87,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   if (gatewayMode === 'fixture' && !allowGatewayFixture) {
     throw new Error('Refusing to start: fixture gateway mode requires ALLOW_GATEWAY_FIXTURE=1')
   }
+  const databaseUrl = overrides.databaseUrl !== undefined ? overrides.databaseUrl : env.DATABASE_URL?.trim() || null
+  if (databaseUrl && !/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
+    throw new Error('DATABASE_URL must be a postgres connection string')
+  }
   const databasePath = overrides.databasePath ?? env.DATABASE_PATH ?? path.resolve('data/app.sqlite')
   const dataDir = overrides.dataDir ?? env.DATA_DIR ?? path.resolve('data')
   const key = overrides.deepseekApiKey !== undefined ? overrides.deepseekApiKey : env.DEEPSEEK_API_KEY?.trim() || null
@@ -96,13 +102,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   })
   const config: AppConfig = {
     nodeEnv,
-    host: overrides.host ?? env.HOST ?? '127.0.0.1',
+    host: overrides.host ?? env.HOST ?? (nodeEnv === 'production' ? '0.0.0.0' : '127.0.0.1'),
     port: overrides.port ?? Number(env.PORT ?? 8787),
     databasePath,
+    databaseUrl,
+    uploads: databaseUrl ? 'disabled' : 'local',
     dataDir,
     staticDir: overrides.staticDir ?? (env.STATIC_DIR ? path.resolve(env.STATIC_DIR) : null),
     sessionTtlHours: overrides.sessionTtlHours ?? Number(env.SESSION_TTL_HOURS ?? 336),
-    cookieSecure: overrides.cookieSecure ?? bool(env.COOKIE_SECURE, false),
+    cookieSecure: overrides.cookieSecure ?? bool(env.COOKIE_SECURE, nodeEnv === 'production'),
     gatewayMode,
     allowGatewayFixture,
     deepseekBaseUrl: upstream.baseUrl,
@@ -120,6 +128,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   }
   if (config.gatewayMode === 'fixture' && !config.fixtureBaseUrl) {
     throw new Error('Fixture gateway mode requires FIXTURE_BASE_URL')
+  }
+  if (nodeEnv === 'production' && !config.databaseUrl) {
+    throw new Error('Refusing to start: production requires DATABASE_URL so user data is not stored on ephemeral disk')
+  }
+  if (nodeEnv === 'production' && config.initiativePollMs > 0) {
+    throw new Error('Refusing to start: INITIATIVE_POLL_MS must stay 0 in production because a free host sleeps and cannot promise scheduled messages')
   }
   return config
 }

@@ -1,0 +1,7 @@
+
+> android:trial
+> node mobile/trial-origin.mjs
+
+BLOCKED
+没有 COMPANION_PUBLIC_ORIGIN。可分发内测包没有构建。
+没有生成可分发安装包，也没有使用假地址。

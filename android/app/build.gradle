@@ -1,5 +1,7 @@
 apply plugin: 'com.android.application'
 
+def trialOrigin = (findProperty('trialOrigin') ?: System.getenv('COMPANION_PUBLIC_ORIGIN') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
+
 android {
     namespace = "app.deepcompanion.shell"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -9,6 +11,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "0.1.0-debug"
+        buildConfigField "String", "TRIAL_ORIGIN", "\"${trialOrigin}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

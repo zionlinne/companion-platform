@@ -1,0 +1,4 @@
+
+> typecheck
+> tsc -p server/tsconfig.json && tsc -p web/tsconfig.json
+

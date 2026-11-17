@@ -4,8 +4,8 @@ import { migrate, openDatabase } from './db.ts'
 
 const [command, ...args] = process.argv.slice(2)
 const config = loadConfig()
-const db = openDatabase(config.databasePath)
-const applied = migrate(db)
+const db = openDatabase(config)
+const applied = await migrate(db)
 
 if (command === 'migrate') {
   console.log(applied.length ? `Applied ${applied.join(', ')}` : 'Migrations already applied')
@@ -22,12 +22,12 @@ if (command === 'migrate') {
 } else if (command === 'invite') {
   const countFlag = args.indexOf('--count')
   const count = countFlag >= 0 ? Number(args[countFlag + 1]) : 1
-  const admin = db.prepare(`SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL`).get() as { id: string } | undefined
+  const admin = await db.get<{ id: string }>(`SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL`)
   if (!admin) {
     console.error('Create an administrator before issuing invitations.')
     process.exitCode = 1
   } else {
-    const created = createInvitations(db, admin.id, count, 1, 'cli')
+    const created = await createInvitations(db, admin.id, count, 1, 'cli')
     console.log('Invitation codes (shown once):')
     for (const invite of created) console.log(invite.code)
   }
@@ -36,4 +36,4 @@ if (command === 'migrate') {
   process.exitCode = 1
 }
 
-db.close()
+await db.close()

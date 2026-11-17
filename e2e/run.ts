@@ -31,10 +31,10 @@ const config = loadConfig(
     initiativePollMs: 0,
   }
 )
-const db = openDatabase(databasePath)
-migrate(db)
+const db = openDatabase(config)
+await migrate(db)
 await initAdmin(db, config, 'admin@example.com', 'AdminPassw0rd!123')
-db.close()
+await db.close()
 
 const child = spawn(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: root,

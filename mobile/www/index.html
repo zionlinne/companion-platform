@@ -9,9 +9,9 @@
   <body>
     <main>
       <p class="mark">D/</p>
-      <h1>Deep Companion</h1>
-      <p>这是安装壳。装上以后还不能注册或聊天，除非下面的地址真的指向你自己的服务。</p>
-      <p class="muted">填写将来的 HTTPS 同源地址，服务要同时提供页面和 <code>/api</code>。不要带路径。这里没有预置公网地址，也没有供应商 Key。推送没有接入。</p>
+      <h1>开发调试包</h1>
+      <p>这一页只属于 debug 开发变体，用来给开发者选择本机服务。它不是内测成品。普通用户的安装包不会出现地址栏或供应商 Key。</p>
+      <p class="muted">可分发内测包必须在构建时锁定真实 HTTPS 源。没有部署域名时不生成那个包。这里没有预置公网地址，也没有供应商 Key。推送没有接入。</p>
       <p class="muted" id="debug-note" hidden>这个 debug 包可以临时填写 <code>http://127.0.0.1:8787</code>。手机上的 127.0.0.1 是手机自己，必须先做 adb reverse。正式包不接受 HTTP。</p>
       <form class="panel">
         <label>服务源

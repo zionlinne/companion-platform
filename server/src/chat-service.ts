@@ -14,8 +14,8 @@ import {
 } from './prompt.ts'
 import type { AttachmentRow, CharacterRow, ConversationRow, MemoryRow, MessageRow, QuotaRow } from './types.ts'
 
-export function ownConversation(ctx: Ctx, id: string): ConversationRow {
-  const row = one<ConversationRow>(
+export async function ownConversation(ctx: Ctx, id: string): Promise<ConversationRow> {
+  const row = await one<ConversationRow>(
     ctx.db,
     `SELECT * FROM conversations WHERE id = ? AND user_id = ?`,
     id,
@@ -25,8 +25,8 @@ export function ownConversation(ctx: Ctx, id: string): ConversationRow {
   return row
 }
 
-export function messagePath(ctx: Ctx, conversationId: string, leafId: string | null): MessageRow[] {
-  const rows = many<MessageRow>(ctx.db, `SELECT * FROM messages WHERE conversation_id = ? AND user_id = ?`, conversationId, ctx.user!.id)
+export async function messagePath(ctx: Ctx, conversationId: string, leafId: string | null): Promise<MessageRow[]> {
+  const rows = await many<MessageRow>(ctx.db, `SELECT * FROM messages WHERE conversation_id = ? AND user_id = ?`, conversationId, ctx.user!.id)
   const byId = new Map(rows.map((row) => [row.id, row]))
   const path: MessageRow[] = []
   const seen = new Set<string>()
@@ -39,14 +39,14 @@ export function messagePath(ctx: Ctx, conversationId: string, leafId: string | n
   return path.reverse()
 }
 
-export function decorateMessages(ctx: Ctx, conversation: ConversationRow) {
-  const rows = many<MessageRow>(
+export async function decorateMessages(ctx: Ctx, conversation: ConversationRow) {
+  const rows = await many<MessageRow>(
     ctx.db,
     `SELECT * FROM messages WHERE conversation_id = ? AND user_id = ? ORDER BY created_at, id`,
     conversation.id,
     conversation.user_id
   )
-  const active = messagePath(ctx, conversation.id, conversation.active_message_id)
+  const active = await messagePath(ctx, conversation.id, conversation.active_message_id)
   return active.map((message) => {
     const siblings = rows
       .filter((row) => row.parent_id === message.parent_id && row.role === message.role)
@@ -67,12 +67,12 @@ export function decorateMessages(ctx: Ctx, conversation: ConversationRow) {
   })
 }
 
-export function assertQuota(ctx: Ctx): void {
-  const quota = one<QuotaRow>(ctx.db, `SELECT * FROM quotas WHERE user_id = ?`, ctx.user!.id)
+export async function assertQuota(ctx: Ctx): Promise<void> {
+  const quota = await one<QuotaRow>(ctx.db, `SELECT * FROM quotas WHERE user_id = ?`, ctx.user!.id)
   if (!quota) return
   const start = new Date()
   start.setUTCHours(0, 0, 0, 0)
-  const usage = one<{ requests: number; tokens: number }>(
+  const usage = await one<{ requests: number; tokens: number }>(
     ctx.db,
     `SELECT count(*) AS requests,
             coalesce(sum(coalesce(prompt_tokens, 0) + coalesce(completion_tokens, 0)), 0) AS tokens
@@ -119,7 +119,7 @@ export async function streamAssistant(
   }
   let character: CharacterRow | undefined
   if (conversation.space === 'companion') {
-    character = one<CharacterRow>(
+    character = await one<CharacterRow>(
       ctx.db,
       `SELECT * FROM characters WHERE id = ? AND user_id = ?`,
       conversation.character_id,
@@ -129,7 +129,7 @@ export async function streamAssistant(
   }
   const assistantId = newId()
   const at = nowIso()
-  run(
+  await run(
     ctx.db,
     `INSERT INTO messages (id, user_id, conversation_id, parent_id, role, content, reasoning, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'assistant', '', NULL, 'streaming', ?, ?)`,
@@ -140,7 +140,7 @@ export async function streamAssistant(
     at,
     at
   )
-  run(
+  await run(
     ctx.db,
     `UPDATE conversations SET active_message_id = ?, model = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
     assistantId,
@@ -150,7 +150,7 @@ export async function streamAssistant(
     ctx.user!.id
   )
   const memories = character
-    ? many<MemoryRow>(
+    ? await many<MemoryRow>(
         ctx.db,
         `SELECT * FROM memories WHERE character_id = ? AND user_id = ? AND status = 'active' ORDER BY updated_at DESC`,
         character.id,
@@ -205,7 +205,7 @@ export async function streamAssistant(
     })
     const cost = costMicroUsd(input.model, result.promptTokens, result.completionTokens, ctx.config.prices, result.source)
     const doneAt = nowIso()
-    run(
+    await run(
       ctx.db,
       `UPDATE messages SET content = ?, reasoning = ?, status = 'complete', updated_at = ? WHERE id = ? AND user_id = ?`,
       content,
@@ -214,7 +214,7 @@ export async function streamAssistant(
       assistantId,
       ctx.user!.id
     )
-    run(
+    await run(
       ctx.db,
       `INSERT INTO usage_ledger (id, user_id, conversation_id, model, prompt_tokens, completion_tokens, cost_micro_usd, cost_status, source, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -250,7 +250,7 @@ export async function streamAssistant(
       : error instanceof GatewayError
         ? error.message
         : 'Model provider failed. No fallback reply was generated.'
-    run(
+    await run(
       ctx.db,
       `UPDATE messages SET content = ?, reasoning = ?, status = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
       content,

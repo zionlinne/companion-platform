@@ -6,8 +6,8 @@ import { tickInitiative } from './initiative.ts'
 import { createLogger } from './log.ts'
 
 const config = loadConfig()
-const db = openDatabase(config.databasePath)
-migrate(db)
+const db = openDatabase(config)
+await migrate(db)
 const log = createLogger()
 const app = createApp({ db, config, log })
 const server = http.createServer((req, res) => {
@@ -21,7 +21,7 @@ if (config.initiativePollMs > 0) {
     ticking = true
     void (async () => {
       try {
-        const rows = db.prepare(`SELECT user_id FROM initiative_settings WHERE enabled = 1`).all() as Array<{ user_id: string }>
+        const rows = await db.all<{ user_id: string }>(`SELECT user_id FROM initiative_settings WHERE enabled = 1`)
         for (const row of rows) {
           await tickInitiative({ db, config, log }, row.user_id)
         }
@@ -41,6 +41,7 @@ server.listen(config.port, config.host, () => {
     host: config.host,
     port,
     gatewayMode: config.gatewayMode,
+    uploads: config.uploads,
     gatewayConfigured: config.gatewayMode === 'fixture' || Boolean(config.deepseekApiKey),
   })
 })

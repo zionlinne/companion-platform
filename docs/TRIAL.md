@@ -1,6 +1,8 @@
 # 可手测检查点
 
-这是给人手测交互的固定版本，不是公开网站，也没有预置试用账号。请在本机启动。没有供应商 Key 时，真实模型对话不可用，页面不能把夹具回复当成 DeepSeek。
+这是给人手测交互的版本，不是公开网站，也没有预置试用账号。请在本机启动。没有供应商 Key 时，真实模型对话不可用，页面不能把夹具回复当成 DeepSeek。
+
+手机上的可分发安装包还没有域名，状态是 BLOCKED。debug APK 只作开发证据。本机浏览器可以走邀请注册、Workspace、Companion、人格、对话和记忆。免费部署的 Postgres 准备见 `docs/DEPLOY.md`。
 
 ## 启动
 
@@ -12,10 +14,10 @@ npm run migrate
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='choose-a-long-password' npm run admin:init
 npm run admin:invite -- --count 10
 npm run build
-npm start
+STATIC_DIR=web/dist npm start
 ```
 
-浏览器打开 `http://127.0.0.1:8787`。用管理员登录，在「管理」里看到邀请码，退出后再注册。密码只来自你自己导出的环境变量，不会写进仓库。
+浏览器打开 `http://127.0.0.1:8787`。用管理员登录，在「管理」里看到邀请码，退出后再注册。密码只来自你自己导出的环境变量，不会写进仓库。页面和 API 是同一个源。
 
 默认 `MODEL_GATEWAY_MODE=live`。不设置 `DEEPSEEK_API_KEY` 时，发送聊天会得到 `model_gateway_unconfigured`，不会出现假回复。
 
