@@ -24,7 +24,7 @@
 - `server/test/upstream-request.test.ts`（新文件）
 - `docs/88API.md`
 
-对应补丁和文件包在 `docs/patches/`。补丁的父提交就是 `07ec01e`。账户钱包分支另外保留了同一套请求拼接。
+可应用补丁是 `docs/patches/88api-gateway-07ec01e.patch`，替换文件包是 `docs/patches/88api-gateway-07ec01e-files.zip`。补丁父提交是 `07ec01ebd59b2e5da026b5d30582baf4f1caa11b`，补丁提交是 `414398fdeb6b0e9d7d79de3d08140f9166e7100c`，分支 `cursor/88api-gateway-07ec01e-7b4d`。账户钱包分支另外保留了同一套请求拼接。原始日志在 `docs/evidence/88api-gateway-07ec01e-logs.zip`。
 
 在原来的目录打开 PowerShell，变量名和试用值如下。Key 只是占位，换成你自己的 88API 令牌，不要写进仓库：
 
